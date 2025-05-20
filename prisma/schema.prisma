@@ -30,6 +30,7 @@ model EventLog {
   status      String
   response    String?
   error       String?
+  metadata    String?  // Add this field for storing event_id, event_source_url, etc.
   createdAt   DateTime @default(now())
 
   @@index([pixelId])
