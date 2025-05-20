@@ -28,7 +28,7 @@ export async function logEvent(
         pixelId,
         eventName,
         status,
-        payload: safeStringify(response),
+        response: safeStringify(response),
         error: safeStringify(error),
       },
     })
