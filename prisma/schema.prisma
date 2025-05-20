@@ -24,14 +24,13 @@ model PixelConfig {
 }
 
 model EventLog {
-  id          String   @id @default(cuid())
-  pixelId     String
-  eventName   String
-  status      String
-  response    String?
-  error       String?
-  metadata    String?  // Add this field for storing event_id, event_source_url, etc.
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  pixelId   String
+  eventName String
+  status    String
+  payload   String?
+  error     String?
+  createdAt DateTime @default(now())
 
   @@index([pixelId])
   @@index([createdAt])

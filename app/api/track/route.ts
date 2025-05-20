@@ -170,14 +170,25 @@ async function hashUserData(user_data: any) {
 }
 
 export async function POST(request: Request) {
+  console.log("POST request received at /api/track")
+
   try {
     // Extract headers
     const ip_address = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
-
     const user_agent = request.headers.get("user-agent") || ""
+
+    // Log the request headers for debugging
+    console.log("Request headers:", {
+      "x-forwarded-for": request.headers.get("x-forwarded-for"),
+      "user-agent": user_agent,
+      "content-type": request.headers.get("content-type"),
+    })
 
     // Parse the request body
     const body = await request.json()
+
+    // Log the request body for debugging
+    console.log("Request body:", JSON.stringify(body).substring(0, 200) + "...")
 
     // Extract data
     const {
@@ -197,10 +208,12 @@ export async function POST(request: Request) {
 
     // Validate required fields
     if (!pixelId) {
+      console.error("Missing pixelId in request")
       return NextResponse.json({ success: false, error: "Pixel ID is required" }, { status: 400, headers: corsHeaders })
     }
 
     if (!event_name) {
+      console.error("Missing event_name in request")
       return NextResponse.json(
         { success: false, error: "Event name is required" },
         { status: 400, headers: corsHeaders },
@@ -314,13 +327,14 @@ export async function POST(request: Request) {
 
 // Handle GET requests for image pixel method
 export async function GET(request: Request) {
+  console.log("GET request received at /api/track")
+
   const { searchParams } = new URL(request.url)
   const dataParam = searchParams.get("d")
   const event_id = crypto.randomUUID()
 
   // Extract headers
   const ip_address = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "127.0.0.1"
-
   const user_agent = request.headers.get("user-agent") || ""
 
   // Return a 1x1 transparent GIF if no data
@@ -338,6 +352,9 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Log the data parameter for debugging
+    console.log("Data parameter received:", dataParam.substring(0, 100) + "...")
+
     // Make sure the GET handler properly handles URL-encoded data
     const decodedDataParam = decodeURIComponent(dataParam)
     const data = JSON.parse(decodedDataParam)
@@ -361,7 +378,7 @@ export async function GET(request: Request) {
 
     // Validate required fields
     if (!pixelId || !event_name) {
-      console.error("Missing required fields in pixel request")
+      console.error("Missing required fields in pixel request:", { pixelId, event_name })
       return new Response(gifPixel, {
         headers: {
           ...corsHeaders,

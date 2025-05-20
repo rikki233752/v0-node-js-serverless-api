@@ -22,19 +22,14 @@ export async function logEvent(
       }
     }
 
+    // Create the event log
     await prisma.eventLog.create({
       data: {
         pixelId,
         eventName,
         status,
-        response: safeStringify(response),
+        payload: safeStringify(response),
         error: safeStringify(error),
-        // Add additional metadata if available in the response
-        metadata: safeStringify({
-          event_id: response?.event_id || error?.event_id,
-          event_source_url: response?.event_source_url || error?.event_source_url,
-          timestamp: new Date().toISOString(),
-        }),
       },
     })
   } catch (logError) {
