@@ -1,30 +1,15 @@
-# Node.js serverless API
+# Bland.ai Flowchart Interface
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+## Environment Variables
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/blinkdigital/v0-node-js-serverless-api)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/0WrKq0zUJ68)
+This application requires the following environment variables to be set:
 
-## Overview
+- `BLAND_AI_API_KEY`: Your Bland.ai API key for accessing the Bland.ai API
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+You can set these environment variables in a `.env.local` file for local development:
 
-## Deployment
+\`\`\`
+BLAND_AI_API_KEY=your_api_key_here
+\`\`\`
 
-Your project is live at:
-
-**[https://vercel.com/blinkdigital/v0-node-js-serverless-api](https://vercel.com/blinkdigital/v0-node-js-serverless-api)**
-
-## Build your app
-
-Continue building your app on:
-
-**[https://v0.dev/chat/projects/0WrKq0zUJ68](https://v0.dev/chat/projects/0WrKq0zUJ68)**
-
-## How It Works
-
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+For production deployment on Vercel, add these environment variables in the Vercel dashboard under Project Settings > Environment Variables.
