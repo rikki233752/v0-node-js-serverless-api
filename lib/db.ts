@@ -1,114 +1,127 @@
-import { neon } from "@neondatabase/serverless"
-import { drizzle } from "drizzle-orm/neon-http"
+import { PrismaClient } from "@prisma/client"
 
-// Create a SQL client
-const sql = neon(process.env.DATABASE_URL!)
+// Define a custom logger for Prisma
+const prismaLogger = [
+  {
+    emit: "event",
+    level: "query",
+  },
+  {
+    emit: "event",
+    level: "error",
+  },
+  {
+    emit: "stdout",
+    level: "error",
+  },
+  {
+    emit: "stdout",
+    level: "info",
+  },
+  {
+    emit: "stdout",
+    level: "warn",
+  },
+]
 
-// Create a Drizzle client
-export const db = drizzle(sql)
+// PrismaClient is attached to the `global` object in development to prevent
+// exhausting your database connection limit.
+const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-// Helper function to execute raw SQL queries
-export async function executeQuery(query: string, params: any[] = []) {
-  try {
-    return await sql(query, params)
-  } catch (error) {
-    console.error("Database query error:", error)
-    throw error
+// Create a new PrismaClient instance with connection retry logic
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? prismaLogger : ["error"],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
+  })
+
+// Add event listeners for better debugging
+if (process.env.NODE_ENV === "development") {
+  prisma.$on("query", (e) => {
+    console.log("Query: " + e.query)
+    console.log("Duration: " + e.duration + "ms")
+  })
+
+  prisma.$on("error", (e) => {
+    console.error("Prisma Error:", e)
+  })
+}
+
+// Prevent multiple instances of Prisma Client in development
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
+
+// Connection function with retry logic
+export async function connectToDatabase(retries = 3, delay = 1000) {
+  let currentTry = 0
+
+  while (currentTry < retries) {
+    try {
+      // Test the connection
+      await prisma.$connect()
+      console.log("Successfully connected to the database")
+      return { success: true, prisma }
+    } catch (error) {
+      currentTry++
+      console.error(`Database connection attempt ${currentTry}/${retries} failed:`, error)
+
+      if (currentTry >= retries) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown database connection error",
+          prisma: null,
+        }
+      }
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      // Increase delay for next retry (exponential backoff)
+      delay *= 2
+    }
+  }
+
+  return {
+    success: false,
+    error: "Maximum connection retries exceeded",
+    prisma: null,
   }
 }
 
-// User-related database functions
-export async function getUserByEmail(email: string) {
-  const query = `
-    SELECT * FROM users 
-    WHERE email = $1
-    LIMIT 1
-  `
+// Helper function to safely execute database operations
+export async function executeWithRetry<T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  let currentTry = 0
+  let lastError: any
 
-  const result = await executeQuery(query, [email])
-  return result.length > 0 ? result[0] : null
-}
+  while (currentTry < retries) {
+    try {
+      return await operation()
+    } catch (error: any) {
+      currentTry++
+      lastError = error
+      console.error(`Database operation attempt ${currentTry}/${retries} failed:`, error)
 
-export async function getUserById(id: number) {
-  const query = `
-    SELECT * FROM users 
-    WHERE id = $1
-    LIMIT 1
-  `
+      // Check if this is a connection error that we should retry
+      const isConnectionError =
+        error.message.includes("Connection") ||
+        error.message.includes("timeout") ||
+        error.message.includes("closed") ||
+        error.code === "P1001" ||
+        error.code === "P1002"
 
-  const result = await executeQuery(query, [id])
-  return result.length > 0 ? result[0] : null
-}
+      if (currentTry >= retries || !isConnectionError) {
+        throw error
+      }
 
-export async function createUser(userData: {
-  name: string
-  email: string
-  password_hash: string
-  company?: string
-  phone_number?: string
-}) {
-  const { name, email, password_hash, company, phone_number } = userData
-
-  const query = `
-    INSERT INTO users (name, email, password_hash, company, phone_number, role, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, 'User', NOW(), NOW())
-    RETURNING id, name, email, company, role, phone_number, created_at
-  `
-
-  const result = await executeQuery(query, [name, email, password_hash, company || null, phone_number || null])
-
-  return result[0]
-}
-
-export async function updateUser(
-  id: number,
-  userData: {
-    name?: string
-    company?: string
-    phone_number?: string
-    preferences?: Record<string, any>
-  },
-) {
-  const updates: string[] = []
-  const values: any[] = []
-  let paramIndex = 1
-
-  // Build dynamic update query
-  Object.entries(userData).forEach(([key, value]) => {
-    if (value !== undefined) {
-      updates.push(`${key} = $${paramIndex}`)
-      values.push(value)
-      paramIndex++
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      // Increase delay for next retry (exponential backoff)
+      delay *= 2
     }
-  })
+  }
 
-  if (updates.length === 0) return null
-
-  // Add updated_at timestamp
-  updates.push(`updated_at = NOW()`)
-
-  // Add user id as the last parameter
-  values.push(id)
-
-  const query = `
-    UPDATE users
-    SET ${updates.join(", ")}
-    WHERE id = $${paramIndex}
-    RETURNING id, name, email, company, role, phone_number, preferences, created_at, updated_at
-  `
-
-  const result = await executeQuery(query, values)
-  return result[0]
-}
-
-export async function updateLastLogin(id: number) {
-  const query = `
-    UPDATE users
-    SET last_login = NOW()
-    WHERE id = $1
-    RETURNING last_login
-  `
-
-  const result = await executeQuery(query, [id])
-  return result[0]
+  throw lastError
 }

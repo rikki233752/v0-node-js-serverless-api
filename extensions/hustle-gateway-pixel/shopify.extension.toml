@@ -1,0 +1,30 @@
+type = "web_pixel_extension"
+name = "Hustle Gateway Pixel"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.pixelId]
+name = "Facebook Pixel ID"
+description = "Enter your Facebook Pixel ID"
+type = "single_line_text_field"
+required = true
+
+[[settings.fields.pixelId.validations]]
+name = "min"
+value = "1"
+
+[settings.fields.gatewayUrl]
+name = "Gateway URL"
+description = "URL of the Meta Conversions API Gateway"
+type = "single_line_text_field"
+default = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
+required = true
+
+[settings.fields.debug]
+name = "Debug Mode"
+description = "Enable debug logging"
+type = "boolean"
+default = false

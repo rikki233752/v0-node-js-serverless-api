@@ -1,0 +1,16 @@
+{
+  "name": "hustle-gateway-pixel",
+  "version": "1.0.0",
+  "description": "Shopify Web Pixel Extension for Meta Conversions API Gateway",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "shopify extension build",
+    "deploy": "shopify extension deploy"
+  },
+  "dependencies": {
+    "@shopify/web-pixels-extension": "^0.4.0"
+  },
+  "devDependencies": {
+    "@shopify/shopify-cli": "^3.0.0"
+  }
+}
