@@ -1,48 +1,64 @@
-import { neon } from "@neondatabase/serverless"
+import { sql } from "@vercel/postgres"
 
-// Create a SQL client
-const sql = neon(process.env.DATABASE_URL!)
+export type User = {
+  id: string | number
+  name: string
+  email: string
+  password_hash?: string
+  company?: string
+  role?: string
+  phone_number?: string
+  last_login?: Date | null
+  created_at?: Date
+  updated_at?: Date
+}
 
-// Helper function to execute raw SQL queries
-export async function executeQuery(query: string, params: any[] = []) {
+/**
+ * Tests the database connection
+ * @returns A promise that resolves to a boolean indicating if the connection was successful
+ */
+export async function testDatabaseConnection(): Promise<boolean> {
   try {
-    return await sql(query, params)
+    // Simple query to test the connection
+    await sql`SELECT 1 as test`
+    return true
   } catch (error) {
-    console.error("Database query error:", error)
-    throw error
+    console.error("Database connection test failed:", error)
+    return false
   }
 }
 
-// User-related database functions
-export async function getUserByEmail(email: string) {
+export async function getUserByEmail(email: string): Promise<User | null> {
   try {
-    const query = `
-      SELECT * FROM users 
-      WHERE email = $1
-      LIMIT 1
+    const result = await sql`
+      SELECT * FROM users WHERE email = ${email} LIMIT 1
     `
 
-    const result = await executeQuery(query, [email])
-    return result.length > 0 ? result[0] : null
+    if (result.rows.length === 0) {
+      return null
+    }
+
+    return result.rows[0] as User
   } catch (error) {
     console.error("Error getting user by email:", error)
-    throw new Error("Database error: Failed to retrieve user")
+    return null
   }
 }
 
-export async function getUserById(id: number) {
+export async function getUserById(id: string | number): Promise<User | null> {
   try {
-    const query = `
-      SELECT * FROM users 
-      WHERE id = $1
-      LIMIT 1
+    const result = await sql`
+      SELECT * FROM users WHERE id = ${id} LIMIT 1
     `
 
-    const result = await executeQuery(query, [id])
-    return result.length > 0 ? result[0] : null
+    if (result.rows.length === 0) {
+      return null
+    }
+
+    return result.rows[0] as User
   } catch (error) {
-    console.error("Error getting user by ID:", error)
-    throw new Error("Database error: Failed to retrieve user")
+    console.error("Error getting user by id:", error)
+    return null
   }
 }
 
@@ -51,85 +67,48 @@ export async function createUser(userData: {
   email: string
   password_hash: string
   company?: string
+  role?: string
   phone_number?: string
-}) {
+}): Promise<User | null> {
   try {
-    const { name, email, password_hash, company, phone_number } = userData
+    const { name, email, password_hash, company, role = "user", phone_number } = userData
 
-    const query = `
-      INSERT INTO users (name, email, password_hash, company, phone_number, role, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, 'User', NOW(), NOW())
-      RETURNING id, name, email, company, role, phone_number, created_at
+    const result = await sql`
+      INSERT INTO users (name, email, password_hash, company, role, phone_number, created_at, updated_at)
+      VALUES (
+        ${name}, 
+        ${email}, 
+        ${password_hash}, 
+        ${company || null}, 
+        ${role}, 
+        ${phone_number || null},
+        NOW(),
+        NOW()
+      )
+      RETURNING id, name, email, company, role, phone_number, created_at, updated_at
     `
 
-    const result = await executeQuery(query, [name, email, password_hash, company || null, phone_number || null])
+    if (result.rows.length === 0) {
+      return null
+    }
 
-    return result[0]
+    return result.rows[0] as User
   } catch (error) {
     console.error("Error creating user:", error)
-    throw new Error("Database error: Failed to create user")
+    return null
   }
 }
 
-export async function updateUser(
-  id: number,
-  userData: {
-    name?: string
-    company?: string
-    phone_number?: string
-    preferences?: Record<string, any>
-  },
-) {
+export async function updateLastLogin(userId: string | number): Promise<boolean> {
   try {
-    const updates: string[] = []
-    const values: any[] = []
-    let paramIndex = 1
-
-    // Build dynamic update query
-    Object.entries(userData).forEach(([key, value]) => {
-      if (value !== undefined) {
-        updates.push(`${key} = $${paramIndex}`)
-        values.push(value)
-        paramIndex++
-      }
-    })
-
-    if (updates.length === 0) return null
-
-    // Add updated_at timestamp
-    updates.push(`updated_at = NOW()`)
-
-    // Add user id as the last parameter
-    values.push(id)
-
-    const query = `
-      UPDATE users
-      SET ${updates.join(", ")}
-      WHERE id = $${paramIndex}
-      RETURNING id, name, email, company, role, phone_number, preferences, created_at, updated_at
+    await sql`
+      UPDATE users 
+      SET last_login = NOW() 
+      WHERE id = ${userId}
     `
-
-    const result = await executeQuery(query, values)
-    return result[0]
-  } catch (error) {
-    console.error("Error updating user:", error)
-    throw new Error("Database error: Failed to update user")
-  }
-}
-
-export async function updateLastLogin(id: number) {
-  try {
-    const query = `
-      UPDATE users
-      SET last_login = NOW()
-      WHERE id = $1
-      RETURNING last_login
-    `
-
-    const result = await executeQuery(query, [id])
-    return result[0]
+    return true
   } catch (error) {
     console.error("Error updating last login:", error)
-    throw new Error("Database error: Failed to update last login")
+    return false
   }
 }
