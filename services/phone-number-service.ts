@@ -7,14 +7,20 @@ export interface PhoneNumberData {
   type?: string
   status?: string
   monthly_fee?: number
-  pathway_id?: string
+  pathway_id?: string | null
   bland_number_id?: string
 }
 
+/**
+ * Fetches all phone numbers for the current authenticated user
+ */
 export async function getUserPhoneNumbers() {
   const supabase = getSupabaseBrowserClient()
 
-  const { data, error } = await supabase.from("phone_numbers").select("*").order("purchased_at", { ascending: false })
+  const { data, error } = await supabase
+    .from("phone_numbers")
+    .select("*, pathways(id, name)")
+    .order("purchased_at", { ascending: false })
 
   if (error) {
     console.error("Error fetching phone numbers:", error)
@@ -24,10 +30,13 @@ export async function getUserPhoneNumbers() {
   return data || []
 }
 
+/**
+ * Fetches a specific phone number by ID
+ */
 export async function getPhoneNumberById(id: string) {
   const supabase = getSupabaseBrowserClient()
 
-  const { data, error } = await supabase.from("phone_numbers").select("*").eq("id", id).single()
+  const { data, error } = await supabase.from("phone_numbers").select("*, pathways(id, name)").eq("id", id).single()
 
   if (error) {
     console.error(`Error fetching phone number ${id}:`, error)
@@ -37,6 +46,9 @@ export async function getPhoneNumberById(id: string) {
   return data
 }
 
+/**
+ * Creates a new phone number for the current user
+ */
 export async function createPhoneNumber(phoneNumberData: PhoneNumberData) {
   const supabase = getSupabaseBrowserClient()
 
@@ -50,6 +62,9 @@ export async function createPhoneNumber(phoneNumberData: PhoneNumberData) {
   return data
 }
 
+/**
+ * Updates an existing phone number
+ */
 export async function updatePhoneNumber(id: string, phoneNumberData: Partial<PhoneNumberData>) {
   const supabase = getSupabaseBrowserClient()
 
@@ -63,6 +78,9 @@ export async function updatePhoneNumber(id: string, phoneNumberData: Partial<Pho
   return data
 }
 
+/**
+ * Deletes a phone number
+ */
 export async function deletePhoneNumber(id: string) {
   const supabase = getSupabaseBrowserClient()
 
@@ -76,6 +94,9 @@ export async function deletePhoneNumber(id: string) {
   return true
 }
 
+/**
+ * Assigns a pathway to a phone number
+ */
 export async function assignPathwayToPhoneNumber(phoneNumberId: string, pathwayId: string | null) {
   const supabase = getSupabaseBrowserClient()
 

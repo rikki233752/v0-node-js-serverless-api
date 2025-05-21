@@ -1,38 +1,48 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 
 export async function middleware(req: NextRequest) {
   try {
     const res = NextResponse.next()
 
-    // Create a Supabase client for the middleware
-    const supabase = createMiddlewareClient({ req, res })
+    // Check if Supabase environment variables are available
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-    // Try to get the session
-    let session = null
+    // If Supabase environment variables are missing, skip Supabase authentication
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.warn("Supabase environment variables are missing. Skipping authentication check.")
+      return res
+    }
+
+    // Only try to use Supabase if environment variables are available
     try {
+      // Dynamically import createMiddlewareClient to avoid errors when env vars are missing
+      const { createMiddlewareClient } = await import("@supabase/auth-helpers-nextjs")
+      const supabase = createMiddlewareClient({ req, res })
+
+      // Try to get the session
       const { data } = await supabase.auth.getSession()
-      session = data.session
-    } catch (error) {
-      console.error("Error in middleware getting session:", error)
-      // Continue without session if there's an error
-    }
+      const session = data.session
 
-    // Check if the request is for a protected route
-    const isProtectedRoute = req.nextUrl.pathname.startsWith("/dashboard")
-    const isAuthRoute = req.nextUrl.pathname === "/login" || req.nextUrl.pathname === "/signup"
+      // Check if the request is for a protected route
+      const isProtectedRoute = req.nextUrl.pathname.startsWith("/dashboard")
+      const isAuthRoute = req.nextUrl.pathname === "/login" || req.nextUrl.pathname === "/signup"
 
-    // If accessing a protected route without being logged in, redirect to login
-    if (isProtectedRoute && !session) {
-      const redirectUrl = new URL("/login", req.url)
-      redirectUrl.searchParams.set("redirect", req.nextUrl.pathname)
-      return NextResponse.redirect(redirectUrl)
-    }
+      // If accessing a protected route without being logged in, redirect to login
+      if (isProtectedRoute && !session) {
+        const redirectUrl = new URL("/login", req.url)
+        redirectUrl.searchParams.set("redirect", req.nextUrl.pathname)
+        return NextResponse.redirect(redirectUrl)
+      }
 
-    // If accessing login/signup while logged in, redirect to dashboard
-    if (isAuthRoute && session) {
-      return NextResponse.redirect(new URL("/dashboard", req.url))
+      // If accessing login/signup while logged in, redirect to dashboard
+      if (isAuthRoute && session) {
+        return NextResponse.redirect(new URL("/dashboard", req.url))
+      }
+    } catch (supabaseError) {
+      console.error("Error using Supabase in middleware:", supabaseError)
+      // Continue without Supabase authentication if there's an error
     }
 
     return res
@@ -48,5 +58,8 @@ export const config = {
   matcher: [
     // Add paths that should be protected
     "/dashboard/:path*",
+    "/login",
+    "/signup",
+    "/reset-password",
   ],
 }
