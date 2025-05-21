@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
@@ -16,18 +17,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
-  const [redirecting, setRedirecting] = useState(false)
-  const { login, isLoading, isAuthenticated } = useAuth()
+  const { login, isLoading } = useAuth()
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const redirectPath = searchParams.get("redirect") || "/dashboard"
-
-  // If already authenticated, redirect to dashboard
-  useEffect(() => {
-    if (isAuthenticated && !isLoading) {
-      router.push(redirectPath)
-    }
-  }, [isAuthenticated, isLoading, router, redirectPath])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,8 +37,7 @@ export default function LoginPage() {
     const result = await login(email, password)
 
     if (result.success) {
-      setRedirecting(true)
-      // The auth state change will trigger the redirect
+      router.push("/dashboard")
     } else {
       setError(result.message)
     }
@@ -55,23 +45,6 @@ export default function LoginPage() {
 
   const handleForgotPassword = () => {
     router.push("/reset-password")
-  }
-
-  if (isAuthenticated || redirecting) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center justify-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-                <div className="w-8 h-8 border-t-2 border-blue-500 rounded-full animate-spin"></div>
-              </div>
-              <p className="text-lg font-medium">Redirecting to dashboard...</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
   }
 
   return (

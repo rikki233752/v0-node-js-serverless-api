@@ -1,235 +1,250 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+import { useAuth } from "@/contexts/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getUserPathways } from "@/services/pathway-service"
-import { getUserPhoneNumbers } from "@/services/phone-number-service"
-import { Skeleton } from "@/components/ui/skeleton"
-import { PlusCircle, Phone, FileLineChartIcon as FlowChart, Clock } from "lucide-react"
+import { BarChart3, Phone, PhoneCall, Plus, Users } from "lucide-react"
+import Link from "next/link"
+import { fetchCallSummary, fetchRecentCallFlows, type CallSummary } from "@/services/call-data-service"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+
+interface RecentCallFlow {
+  id: string
+  name: string
+  daysAgo: number
+}
 
 export default function DashboardPage() {
-  const router = useRouter()
-  const [pathways, setPathways] = useState<any[]>([])
-  const [phoneNumbers, setPhoneNumbers] = useState<any[]>([])
+  const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [callSummary, setCallSummary] = useState<CallSummary>({
+    totalCalls: 0,
+    activeFlows: 0,
+    conversionRate: 0,
+    callsThisMonth: 0,
+    callsLastMonth: 0,
+    conversionRateChange: 0,
+    activeFlowsChange: 0,
+  })
+  const [recentFlows, setRecentFlows] = useState<RecentCallFlow[]>([])
+  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string>("")
+  const [dateRange, setDateRange] = useState<string>("month")
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        setIsLoading(true)
-        const [pathwaysData, phoneNumbersData] = await Promise.all([getUserPathways(), getUserPhoneNumbers()])
+    async function loadDashboardData() {
+      setIsLoading(true)
+      setError(null)
 
-        setPathways(pathwaysData)
-        setPhoneNumbers(phoneNumbersData)
+      try {
+        // Fetch call summary data
+        const summary = await fetchCallSummary(selectedPhoneNumber, dateRange)
+        setCallSummary(summary)
+
+        // Fetch recent call flows
+        const flows = await fetchRecentCallFlows()
+        setRecentFlows(flows)
       } catch (err) {
-        console.error("Error fetching dashboard data:", err)
+        console.error("Error loading dashboard data:", err)
         setError("Failed to load dashboard data. Please try again.")
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchData()
-  }, [])
+    loadDashboardData()
+  }, [selectedPhoneNumber, dateRange])
 
-  const handleCreateNewPathway = () => {
-    router.push("/dashboard/call-flows/new")
-  }
-
-  const handleViewPathway = (id: string) => {
-    router.push(`/dashboard/call-flows/editor?id=${id}`)
-  }
-
-  const handlePurchaseNumber = () => {
-    router.push("/dashboard/phone-numbers/purchase")
-  }
-
-  const handleViewPhoneNumber = (number: string) => {
-    // Remove any non-digit characters for the URL
-    const cleanNumber = number.replace(/\D/g, "")
-    router.push(`/dashboard/pathway/${cleanNumber}`)
+  // Format percentage with + sign for positive values
+  const formatPercentageChange = (value: number) => {
+    const sign = value > 0 ? "+" : ""
+    return `${sign}${value.toFixed(1)}%`
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-gray-500">Welcome to your Bland.ai Flow Builder dashboard</p>
+          <h2 className="text-2xl font-bold tracking-tight">Welcome back, {user?.name}!</h2>
+          <p className="text-muted-foreground">Here's an overview of your AI call automation performance</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={handleCreateNewPathway} className="flex items-center gap-2">
-            <PlusCircle className="h-4 w-4" />
-            New Pathway
-          </Button>
-          <Button onClick={handlePurchaseNumber} variant="outline" className="flex items-center gap-2">
-            <Phone className="h-4 w-4" />
-            Purchase Number
-          </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Select value={dateRange} onValueChange={setDateRange}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select timeframe" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="day">Today</SelectItem>
+              <SelectItem value="week">This Week</SelectItem>
+              <SelectItem value="month">This Month</SelectItem>
+              <SelectItem value="quarter">This Quarter</SelectItem>
+              <SelectItem value="year">This Year</SelectItem>
+            </SelectContent>
+          </Select>
+          <Link href="/dashboard/call-flows/new">
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              New Call Flow
+            </Button>
+          </Link>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium">Total Pathways</CardTitle>
-            <CardDescription>Your created call flows</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center">
-              <FlowChart className="h-5 w-5 mr-2 text-blue-500" />
-              <span className="text-3xl font-bold">{isLoading ? "-" : pathways.length}</span>
-            </div>
-          </CardContent>
-        </Card>
+      {error && <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-4">{error}</div>}
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium">Phone Numbers</CardTitle>
-            <CardDescription>Your active phone numbers</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center">
-              <Phone className="h-5 w-5 mr-2 text-green-500" />
-              <span className="text-3xl font-bold">{isLoading ? "-" : phoneNumbers.length}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium">Recent Calls</CardTitle>
-            <CardDescription>Calls in the last 30 days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center">
-              <Clock className="h-5 w-5 mr-2 text-purple-500" />
-              <span className="text-3xl font-bold">0</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="pathways" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="pathways">My Pathways</TabsTrigger>
-          <TabsTrigger value="numbers">My Phone Numbers</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="pathways" className="space-y-4">
-          {error && <div className="p-4 bg-red-50 text-red-800 rounded-md">{error}</div>}
-
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-20 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : pathways.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center p-6">
-                <FlowChart className="h-12 w-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium mb-2">No pathways yet</h3>
-                <p className="text-gray-500 text-center mb-4">
-                  Create your first pathway to start building your call flow
-                </p>
-                <Button onClick={handleCreateNewPathway}>Create Pathway</Button>
+      {isLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Loading...</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
               </CardContent>
             </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {pathways.map((pathway) => (
-                <Card key={pathway.id} className="overflow-hidden hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2">
-                    <CardTitle>{pathway.name}</CardTitle>
-                    <CardDescription>
-                      {pathway.is_published ? "Published" : "Draft"} • Created{" "}
-                      {new Date(pathway.created_at).toLocaleDateString()}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                      {pathway.description || "No description provided"}
-                    </p>
-                    <Button variant="outline" className="w-full" onClick={() => handleViewPathway(pathway.id)}>
-                      View Pathway
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Calls</CardTitle>
+              <PhoneCall className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{callSummary.totalCalls.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">
+                {callSummary.callsThisMonth > callSummary.callsLastMonth
+                  ? `+${callSummary.callsThisMonth - callSummary.callsLastMonth} from last month`
+                  : callSummary.callsLastMonth > callSummary.callsThisMonth
+                    ? `-${callSummary.callsLastMonth - callSummary.callsThisMonth} from last month`
+                    : "No change from last month"}
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Flows</CardTitle>
+              <Phone className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{callSummary.activeFlows}</div>
+              <p className="text-xs text-muted-foreground">
+                {formatPercentageChange(callSummary.activeFlowsChange)} from last month
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{callSummary.conversionRate.toFixed(1)}%</div>
+              <p className="text-xs text-muted-foreground">
+                {formatPercentageChange(callSummary.conversionRateChange)} from last month
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Team Members</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">3</div>
+              <p className="text-xs text-muted-foreground">+1 seat available</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        <TabsContent value="numbers" className="space-y-4">
-          {error && <div className="p-4 bg-red-50 text-red-800 rounded-md">{error}</div>}
-
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2].map((i) => (
-                <Card key={i}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </CardHeader>
-                  <CardContent>
-                    <Skeleton className="h-20 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : phoneNumbers.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center p-6">
-                <Phone className="h-12 w-12 text-gray-400 mb-4" />
-                <h3 className="text-lg font-medium mb-2">No phone numbers yet</h3>
-                <p className="text-gray-500 text-center mb-4">Purchase a phone number to connect with your pathways</p>
-                <Button onClick={handlePurchaseNumber}>Purchase Number</Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {phoneNumbers.map((phoneNumber) => (
-                <Card key={phoneNumber.id} className="overflow-hidden hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2">
-                    <CardTitle>{phoneNumber.number}</CardTitle>
-                    <CardDescription>
-                      {phoneNumber.location} • {phoneNumber.status}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-sm text-gray-500">
-                        {phoneNumber.pathway_id ? "Pathway assigned" : "No pathway assigned"}
-                      </span>
-                      <span className="text-sm font-medium">${phoneNumber.monthly_fee}/mo</span>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="lg:col-span-4">
+          <CardHeader>
+            <CardTitle>Call Performance</CardTitle>
+            <CardDescription>Call volume and success rate over time</CardDescription>
+          </CardHeader>
+          <CardContent className="pl-2">
+            {isLoading ? (
+              <div className="h-[300px] w-full bg-gray-100 rounded-md flex items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+              </div>
+            ) : callSummary.totalCalls === 0 ? (
+              <div className="h-[300px] w-full bg-gray-100 rounded-md flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-muted-foreground">No call data available</p>
+                  <p className="text-muted-foreground text-sm mt-2">Start making calls to see performance metrics</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-[300px] w-full bg-gray-100 rounded-md flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-muted-foreground">
+                    Call performance chart will appear here based on {callSummary.totalCalls} calls
+                  </p>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Connect to a charting library to visualize the data
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle>Recent Call Flows</CardTitle>
+            <CardDescription>Your recently created or modified call flows</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <div className="h-10 w-10 bg-gray-200 rounded-full animate-pulse"></div>
+                    <div className="flex-1">
+                      <div className="h-4 bg-gray-200 rounded w-3/4 mb-2 animate-pulse"></div>
+                      <div className="h-3 bg-gray-200 rounded w-1/2 animate-pulse"></div>
                     </div>
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => handleViewPhoneNumber(phoneNumber.number)}
-                    >
-                      Manage Number
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+                  </div>
+                ))}
+              </div>
+            ) : recentFlows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <Phone className="h-12 w-12 text-muted-foreground mb-4" />
+                <p className="font-medium">No call flows yet</p>
+                <p className="text-sm text-muted-foreground mt-1">Create your first call flow to get started</p>
+                <Link href="/dashboard/call-flows/new" className="mt-4">
+                  <Button size="sm">Create Call Flow</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {recentFlows.map((flow, i) => (
+                  <div key={i} className="flex items-center gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                      <Phone className="h-5 w-5 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">{flow.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Modified {flow.daysAgo} day{flow.daysAgo !== 1 ? "s" : ""} ago
+                      </p>
+                    </div>
+                    <Link href={`/dashboard/call-flows/${flow.id}`}>
+                      <Button variant="ghost" size="sm">
+                        Edit
+                      </Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

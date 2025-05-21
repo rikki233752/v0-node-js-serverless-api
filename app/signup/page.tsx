@@ -1,7 +1,8 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth, type SignupData } from "@/contexts/auth-context"
@@ -10,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle, CheckCircle2 } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 
 export default function SignupPage() {
   const [formData, setFormData] = useState<SignupData>({
@@ -22,16 +23,8 @@ export default function SignupPage() {
   })
   const [confirmPassword, setConfirmPassword] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [successMessage, setSuccessMessage] = useState("")
-  const { signup, isLoading, isAuthenticated } = useAuth()
+  const { signup, isLoading } = useAuth()
   const router = useRouter()
-
-  // If already authenticated, redirect to dashboard
-  useEffect(() => {
-    if (isAuthenticated && !isLoading) {
-      router.push("/dashboard")
-    }
-  }, [isAuthenticated, isLoading, router])
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
@@ -76,40 +69,11 @@ export default function SignupPage() {
     const result = await signup(formData)
 
     if (result.success) {
-      if (result.message.includes("check your email")) {
-        // Email confirmation required
-        setSuccessMessage(result.message)
-      } else {
-        // Auto-login successful, will redirect via useEffect
-      }
+      // Redirect to dashboard immediately after successful signup
+      router.push("/dashboard")
     } else {
       setErrors((prev) => ({ ...prev, form: result.message }))
     }
-  }
-
-  if (successMessage) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-bold">Check your email</CardTitle>
-            <CardDescription>We've sent you a confirmation link</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Alert className="mb-4 bg-green-50 text-green-800 border-green-200">
-              <CheckCircle2 className="h-4 w-4 text-green-800" />
-              <AlertDescription>{successMessage}</AlertDescription>
-            </Alert>
-            <p className="text-center mt-4">
-              Please check your email to confirm your account. Once confirmed, you can log in.
-            </p>
-            <div className="mt-6 text-center">
-              <Button onClick={() => router.push("/login")}>Go to Login</Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
   }
 
   return (

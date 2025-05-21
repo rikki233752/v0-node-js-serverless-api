@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server"
-import { createServerClient } from "@supabase/ssr"
-import { cookies } from "next/headers"
 
 // Format phone number to E.164 format
 function formatToE164(input: string): string {
@@ -66,49 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data.message || "Failed to purchase number" }, { status: response.status })
     }
 
-    // Create Supabase client
-    const cookieStore = cookies()
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
-        },
-      },
-    )
-
-    // Get the current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: "User not authenticated" }, { status: 401 })
-    }
-
-    // Store the purchased number in Supabase
-    const { error: insertError } = await supabase.from("phone_numbers").insert({
-      user_id: user.id,
-      number: formattedNumber,
-      location: data.location || country,
-      type: "Voice",
-      status: "Active",
-      monthly_fee: 1.0,
-      bland_number_id: data.id || null,
-    })
-
-    if (insertError) {
-      console.error("Error storing phone number in database:", insertError)
-      return NextResponse.json({ error: "Failed to store phone number in database" }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ...data,
-      message: "Phone number purchased successfully and stored in your account",
-    })
+    return NextResponse.json(data)
   } catch (error) {
     console.error("Error purchasing number:", error)
     return NextResponse.json(
