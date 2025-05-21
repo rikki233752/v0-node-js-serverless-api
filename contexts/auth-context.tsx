@@ -111,6 +111,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch (error) {
             console.error("Error processing user profile:", error)
           }
+        } else {
+          // No session, check localStorage for mock auth
+          const storedUser = localStorage.getItem("bland-user")
+          if (storedUser) {
+            try {
+              setUser(JSON.parse(storedUser))
+            } catch (error) {
+              console.error("Failed to parse stored user:", error)
+              localStorage.removeItem("bland-user")
+            }
+          }
         }
       } catch (error) {
         console.error("Auth initialization error:", error)
