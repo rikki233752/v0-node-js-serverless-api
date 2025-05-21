@@ -10,8 +10,15 @@ export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+    // Add connection pool configuration
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
   })
 
+// Prevent multiple instances of Prisma Client in development
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 
 // Export a higher-level function to handle connection errors gracefully
