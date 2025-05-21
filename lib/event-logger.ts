@@ -1,4 +1,4 @@
-import { prisma } from "./db"
+import { prisma, executeWithRetry } from "./db"
 
 /**
  * Log an event to the database
@@ -22,15 +22,17 @@ export async function logEvent(
       }
     }
 
-    // Create the event log
-    await prisma.eventLog.create({
-      data: {
-        pixelId,
-        eventName,
-        status,
-        payload: safeStringify(response),
-        error: safeStringify(error),
-      },
+    // Create the event log with retry logic
+    await executeWithRetry(async () => {
+      await prisma.eventLog.create({
+        data: {
+          pixelId,
+          eventName,
+          status,
+          payload: safeStringify(response),
+          error: safeStringify(error),
+        },
+      })
     })
   } catch (logError) {
     console.error("Failed to log event:", logError)

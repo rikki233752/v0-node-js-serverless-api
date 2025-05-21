@@ -3,7 +3,7 @@ import crypto from "crypto"
 import axios from "axios"
 import { getAccessToken } from "@/lib/pixel-tokens"
 import { logEvent } from "@/lib/event-logger"
-import { prisma } from "@/lib/db"
+import { prisma, executeWithRetry } from "@/lib/db"
 
 const gifPixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64")
 
@@ -220,9 +220,11 @@ export async function POST(request: Request) {
       )
     }
 
-    // Check if the pixel is configured in our system
-    const isConfigured = await prisma.pixelConfig.findUnique({
-      where: { pixelId },
+    // Check if the pixel is configured in our system - WITH RETRY LOGIC
+    const isConfigured = await executeWithRetry(async () => {
+      return await prisma.pixelConfig.findUnique({
+        where: { pixelId },
+      })
     })
 
     // If not configured and not the default pixel, reject the request
@@ -390,9 +392,11 @@ export async function GET(request: Request) {
       })
     }
 
-    // Check if the pixel is configured in our system
-    const isConfigured = await prisma.pixelConfig.findUnique({
-      where: { pixelId },
+    // Check if the pixel is configured in our system - WITH RETRY LOGIC
+    const isConfigured = await executeWithRetry(async () => {
+      return await prisma.pixelConfig.findUnique({
+        where: { pixelId },
+      })
     })
 
     // If not configured and not the default pixel, log warning but still return the image
