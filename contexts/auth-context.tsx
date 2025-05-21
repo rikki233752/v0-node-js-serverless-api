@@ -2,16 +2,23 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import {
+  login as loginAction,
+  signup as signupAction,
+  logout as logoutAction,
+  updateProfile as updateProfileAction,
+} from "@/app/actions/auth-actions"
 
 export type User = {
-  id: string
+  id: string | number
   name: string
   email: string
-  company: string
+  company?: string
   role: string
   phoneNumber?: string
   preferences?: Record<string, any>
   lastLogin?: string
+  twoFactorEnabled?: boolean
 }
 
 interface AuthContextType {
@@ -23,6 +30,8 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>
   updateProfile: (data: Partial<User>) => Promise<{ success: boolean; message: string }>
   isAuthenticated: boolean
+  enableTwoFactor: () => Promise<{ success: boolean; message: string; setupData?: any }>
+  verifyTwoFactor: (code: string) => Promise<{ success: boolean; message: string }>
 }
 
 export interface SignupData {
@@ -35,120 +44,92 @@ export interface SignupData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// For demo purposes - would be replaced with actual API calls
-const MOCK_USERS_KEY = "bland-mock-users"
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const isAuthenticated = !!user
 
-  // Load user on mount
+  // Check for existing session on mount
   useEffect(() => {
-    const storedUser = localStorage.getItem("bland-user")
-    if (storedUser) {
+    const checkSession = async () => {
       try {
-        setUser(JSON.parse(storedUser))
+        // Try to get user from localStorage first (for backward compatibility)
+        const storedUser = localStorage.getItem("bland-user")
+        if (storedUser) {
+          try {
+            setUser(JSON.parse(storedUser))
+            setIsLoading(false)
+            return
+          } catch (error) {
+            console.error("Failed to parse stored user:", error)
+            localStorage.removeItem("bland-user")
+          }
+        }
+
+        // If no stored user, check for server session
+        const response = await fetch("/api/auth/session")
+        if (response.ok) {
+          const data = await response.json()
+          if (data.user) {
+            setUser(data.user)
+          }
+        }
       } catch (error) {
-        console.error("Failed to parse stored user:", error)
-        localStorage.removeItem("bland-user")
+        console.error("Failed to check session:", error)
+      } finally {
+        setIsLoading(false)
       }
     }
-    setIsLoading(false)
+
+    checkSession()
   }, [])
 
-  // Mock user storage - in a real app, this would be handled by a backend
-  const getMockUsers = (): Record<string, User & { password: string }> => {
-    const users = localStorage.getItem(MOCK_USERS_KEY)
-    return users ? JSON.parse(users) : {}
-  }
-
-  const saveMockUsers = (users: Record<string, User & { password: string }>) => {
-    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users))
-  }
-
-  const signup = async (userData: SignupData): Promise<{ success: boolean; message: string }> => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
     setIsLoading(true)
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      const formData = new FormData()
+      formData.append("email", email)
+      formData.append("password", password)
 
-      const users = getMockUsers()
+      const result = await loginAction(formData)
 
-      // Check if email already exists
-      if (users[userData.email]) {
-        return { success: false, message: "Email already in use" }
+      if (result.success && result.user) {
+        setUser(result.user)
+        // Store in localStorage for backward compatibility
+        localStorage.setItem("bland-user", JSON.stringify(result.user))
       }
 
-      // Validate password strength
-      if (userData.password.length < 8) {
-        return { success: false, message: "Password must be at least 8 characters long" }
-      }
-
-      // Create new user
-      const newUser: User & { password: string } = {
-        id: `user_${Date.now()}`,
-        name: userData.name,
-        email: userData.email,
-        company: userData.company || userData.email.split("@")[1].split(".")[0],
-        role: "User",
-        password: userData.password, // In a real app, this would be hashed
-        phoneNumber: userData.phoneNumber,
-        lastLogin: new Date().toISOString(),
-      }
-
-      // Save user
-      users[userData.email] = newUser
-      saveMockUsers(users)
-
-      // Set the user as logged in immediately after signup
-      const sessionUser = { ...newUser }
-      delete sessionUser.password // Remove password from session data
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
-
-      return {
-        success: true,
-        message: "Account created successfully! Redirecting to dashboard...",
-      }
+      return { success: result.success, message: result.message }
     } catch (error) {
-      console.error("Signup error:", error)
+      console.error("Login error:", error)
       return { success: false, message: "An unexpected error occurred. Please try again." }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
+  const signup = async (userData: SignupData): Promise<{ success: boolean; message: string }> => {
     setIsLoading(true)
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      const formData = new FormData()
+      formData.append("name", userData.name)
+      formData.append("email", userData.email)
+      formData.append("password", userData.password)
+      if (userData.company) formData.append("company", userData.company)
+      if (userData.phoneNumber) formData.append("phoneNumber", userData.phoneNumber)
 
-      const users = getMockUsers()
-      const user = users[email]
+      const result = await signupAction(formData)
 
-      // Check if user exists and password matches
-      if (!user || user.password !== password) {
-        return { success: false, message: "Invalid email or password" }
+      if (result.success && result.user) {
+        setUser(result.user)
+        // Store in localStorage for backward compatibility
+        localStorage.setItem("bland-user", JSON.stringify(result.user))
       }
 
-      // Update last login
-      user.lastLogin = new Date().toISOString()
-      users[email] = user
-      saveMockUsers(users)
-
-      // Create session
-      const sessionUser = { ...user }
-      delete sessionUser.password // Remove password from session data
-
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
-
-      return { success: true, message: "Login successful" }
+      return { success: result.success, message: result.message }
     } catch (error) {
-      console.error("Login error:", error)
+      console.error("Signup error:", error)
       return { success: false, message: "An unexpected error occurred. Please try again." }
     } finally {
       setIsLoading(false)
@@ -159,28 +140,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     localStorage.removeItem("bland-user")
     localStorage.removeItem("bland-api-key") // Also clear API key on logout
-    router.push("/login")
+    logoutAction() // This will clear the server-side cookie and redirect
   }
 
   const resetPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
-
-      const users = getMockUsers()
-
-      // Check if user exists
-      if (!users[email]) {
-        // For security, don't reveal if email exists or not
-        return {
-          success: true,
-          message: "If your email is registered, you will receive password reset instructions.",
-        }
-      }
-
-      // In a real app, we would send a password reset email here
-      // For demo, we'll simulate it was sent
-
+      // This would be implemented with a real password reset flow
+      // For now, return a generic message
       return {
         success: true,
         message: "If your email is registered, you will receive password reset instructions.",
@@ -192,37 +158,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const updateProfile = async (data: Partial<User>): Promise<{ success: boolean; message: string }> => {
-    if (!user) {
+    if (!user || !user.id) {
       return { success: false, message: "You must be logged in to update your profile" }
     }
 
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      const formData = new FormData()
+      if (data.name) formData.append("name", data.name)
+      if (data.company) formData.append("company", data.company)
+      if (data.phoneNumber) formData.append("phoneNumber", data.phoneNumber)
 
-      const users = getMockUsers()
-      const currentUser = users[user.email]
+      const result = await updateProfileAction(Number(user.id), formData)
 
-      if (!currentUser) {
-        return { success: false, message: "User not found" }
+      if (result.success && result.user) {
+        setUser(result.user)
+        // Update localStorage for backward compatibility
+        localStorage.setItem("bland-user", JSON.stringify(result.user))
       }
 
-      // Update user data
-      const updatedUser = { ...currentUser, ...data }
-      users[user.email] = updatedUser
-      saveMockUsers(users)
-
-      // Update session
-      const sessionUser = { ...updatedUser }
-      delete sessionUser.password
-
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
-
-      return { success: true, message: "Profile updated successfully" }
+      return { success: result.success, message: result.message }
     } catch (error) {
       console.error("Update profile error:", error)
       return { success: false, message: "An unexpected error occurred. Please try again." }
+    }
+  }
+
+  // Placeholder for two-factor authentication
+  const enableTwoFactor = async (): Promise<{ success: boolean; message: string; setupData?: any }> => {
+    // This would be implemented with a real 2FA setup
+    return {
+      success: false,
+      message: "Two-factor authentication is not yet implemented",
+    }
+  }
+
+  const verifyTwoFactor = async (code: string): Promise<{ success: boolean; message: string }> => {
+    // This would be implemented with a real 2FA verification
+    return {
+      success: false,
+      message: "Two-factor authentication is not yet implemented",
     }
   }
 
@@ -237,6 +211,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         updateProfile,
         isAuthenticated,
+        enableTwoFactor,
+        verifyTwoFactor,
       }}
     >
       {children}
