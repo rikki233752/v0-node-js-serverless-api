@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npx prisma generate && next build",
+  "installCommand": "npm ci --legacy-peer-deps",
+  "framework": "nextjs",
+  "nodeVersion": "16.20.0"
+}
