@@ -1,59 +1,77 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getUserPathways, withUserAuth } from "@/lib/db-utils"
+import { getUserFromRequest } from "@/lib/auth-utils"
+import { createPathway, getPathwaysByUserId } from "@/lib/db-utils"
 import { supabase } from "@/lib/supabase"
 
-// GET handler to fetch all pathways for the current user
-export const GET = withUserAuth(async (req: NextRequest, userId: string) => {
+// Get all pathways for the current user
+export async function GET(req: NextRequest) {
   try {
-    const pathways = await getUserPathways(userId)
-    return NextResponse.json(pathways)
+    const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const pathways = await getPathwaysByUserId(user.id)
+    return NextResponse.json({ pathways })
   } catch (error) {
-    console.error("Error in pathways API:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error occurred" },
-      { status: 500 },
-    )
+    console.error("Error fetching pathways:", error)
+    return NextResponse.json({ error: "Failed to fetch pathways" }, { status: 500 })
   }
-})
+}
 
-// POST handler to create a new pathway
-export const POST = withUserAuth(async (req: NextRequest, userId: string) => {
+// Create a new pathway
+export async function POST(req: NextRequest) {
   try {
-    const data = await req.json()
+    const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
 
-    // Validate required fields
-    if (!data.name) {
+    const { name, description, teamId, data } = await req.json()
+
+    if (!name) {
       return NextResponse.json({ error: "Pathway name is required" }, { status: 400 })
     }
 
-    // Create the pathway in Supabase
-    const { data: pathway, error } = await supabase
-      .from("pathways")
-      .insert({
-        name: data.name,
-        description: data.description || `Created on ${new Date().toISOString()}`,
-        creator_id: userId, // Always associate with the current user
-        updater_id: userId,
-        team_id: data.team_id || null,
-        bland_id: data.bland_id || null,
-        data: data.data || {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single()
+    // If teamId is provided, check if user has access to the team
+    if (teamId) {
+      const { data: membership, error } = await supabase
+        .from("team_members")
+        .select("role")
+        .eq("team_id", teamId)
+        .eq("user_id", user.id)
+        .single()
 
-    if (error) {
-      console.error("Error creating pathway:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      const { data: team } = await supabase.from("teams").select("owner_id").eq("id", teamId).single()
+
+      if (error && !team?.owner_id === user.id) {
+        return NextResponse.json({ error: "You don't have access to this team" }, { status: 403 })
+      }
+
+      if (!membership && !team?.owner_id === user.id) {
+        return NextResponse.json({ error: "You are not a member of this team" }, { status: 403 })
+      }
+
+      // Check if user has permission to create pathways in this team
+      if (membership && !["admin", "editor"].includes(membership.role) && !team?.owner_id === user.id) {
+        return NextResponse.json(
+          { error: "You don't have permission to create pathways in this team" },
+          { status: 403 },
+        )
+      }
     }
 
-    return NextResponse.json(pathway)
+    const pathway = await createPathway({
+      name,
+      description,
+      teamId,
+      creatorId: user.id,
+      data,
+    })
+
+    return NextResponse.json({ pathway }, { status: 201 })
   } catch (error) {
-    console.error("Error in pathways API:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error occurred" },
-      { status: 500 },
-    )
+    console.error("Error creating pathway:", error)
+    return NextResponse.json({ error: "Failed to create pathway" }, { status: 500 })
   }
-})
+}

@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server"
-import { getUserFromRequest } from "@/lib/auth-utils"
-import { supabase } from "@/lib/supabase"
 
 // Format phone number to E.164 format
 function formatToE164(input: string): string {
@@ -22,13 +20,6 @@ function formatToE164(input: string): string {
 
 export async function POST(request: Request) {
   try {
-    // Get the current authenticated user
-    const user = await getUserFromRequest(request)
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     const { phoneNumber, country = "US" } = await request.json()
 
     // Get the API key from environment variables
@@ -73,30 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data.message || "Failed to purchase number" }, { status: response.status })
     }
 
-    // Store the purchased number in the database with the user_id
-    const { error: dbError } = await supabase.from("phone_numbers").insert({
-      user_id: user.id, // Associate with the current user
-      number: formattedNumber,
-      location: data.location || "Unknown",
-      type: "Voice",
-      status: "Active",
-      monthly_fee: data.price || 1.0,
-      purchased_at: new Date().toISOString(),
-    })
-
-    if (dbError) {
-      console.error("Error storing phone number in database:", dbError)
-      return NextResponse.json({ error: "Number purchased but failed to store in database" }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Phone number purchased successfully",
-      data: {
-        ...data,
-        user_id: user.id, // Include user_id in the response for debugging
-      },
-    })
+    return NextResponse.json(data)
   } catch (error) {
     console.error("Error purchasing number:", error)
     return NextResponse.json(

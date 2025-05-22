@@ -1,51 +1,5 @@
-import { supabase } from "@/lib/supabase"
+import { supabase } from "./supabase"
 import { v4 as uuidv4 } from "uuid"
-import { getUserFromRequest } from "@/lib/auth-utils"
-import { type NextRequest, NextResponse } from "next/server"
-
-// Type definitions for our database tables
-export interface PhoneNumber {
-  id: string
-  user_id: string
-  number: string
-  friendly_name?: string
-  location?: string
-  type?: string
-  status?: string
-  monthly_fee?: number
-  purchased_at: string
-  created_at: string
-  updated_at: string
-}
-
-export interface Pathway {
-  id: string
-  name: string
-  description?: string
-  team_id?: string
-  creator_id: string
-  updater_id?: string
-  bland_id?: string
-  data: any
-  created_at: string
-  updated_at: string
-}
-
-export interface CallLog {
-  id: string
-  phone_number_id: string
-  pathway_id?: string
-  caller_number?: string
-  duration?: number
-  status?: string
-  recording_url?: string
-  transcript?: string
-  summary?: string
-  sentiment?: string
-  started_at: string
-  ended_at?: string
-  created_at: string
-}
 
 // Team functions
 export async function createTeam(name: string, description: string | null, ownerId: string) {
@@ -336,25 +290,40 @@ export async function acceptInvitation(token: string, userId: string) {
 }
 
 // Pathway functions
-export async function createPathway(userId: string, pathwayData: Partial<Pathway>) {
-  const { data, error } = await supabase
+export async function createPathway(data: {
+  name: string
+  description?: string
+  teamId?: string
+  creatorId: string
+  data?: any
+}) {
+  const { name, description, teamId, creatorId, data: pathwayData } = data
+
+  const { data: pathway, error } = await supabase
     .from("pathways")
     .insert({
-      ...pathwayData,
-      creator_id: userId,
-      updater_id: userId,
+      id: uuidv4(),
+      name,
+      description,
+      team_id: teamId,
+      creator_id: creatorId,
+      updater_id: creatorId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      data: pathwayData || {},
     })
     .select()
     .single()
 
   if (error) {
     console.error("Error creating pathway:", error)
-    throw new Error(`Failed to create pathway: ${error.message}`)
+    throw new Error("Failed to create pathway")
   }
 
-  return data as Pathway
+  // Log activity
+  await logActivity(pathway.id, creatorId, "created")
+
+  return pathway
 }
 
 export async function getPathwaysByUserId(userId: string) {
@@ -639,94 +608,4 @@ export async function canEditPathway(pathwayId: string, userId: string): Promise
   }
 
   return membership && ["admin", "editor"].includes(membership.role)
-}
-
-// Utility function to get phone numbers for the current user
-export async function getUserPhoneNumbers(userId: string) {
-  const { data, error } = await supabase
-    .from("phone_numbers")
-    .select("*")
-    .eq("user_id", userId)
-    .order("purchased_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching phone numbers:", error)
-    throw new Error(`Failed to fetch phone numbers: ${error.message}`)
-  }
-
-  return data as PhoneNumber[]
-}
-
-// Utility function to get pathways for the current user
-export async function getUserPathways(userId: string) {
-  const { data, error } = await supabase
-    .from("pathways")
-    .select("*")
-    .eq("creator_id", userId)
-    .order("updated_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching pathways:", error)
-    throw new Error(`Failed to fetch pathways: ${error.message}`)
-  }
-
-  return data as Pathway[]
-}
-
-// Utility function to get call logs for a specific phone number
-export async function getPhoneNumberCallLogs(phoneNumberId: string) {
-  const { data, error } = await supabase
-    .from("call_logs")
-    .select("*")
-    .eq("phone_number_id", phoneNumberId)
-    .order("started_at", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching call logs:", error)
-    throw new Error(`Failed to fetch call logs: ${error.message}`)
-  }
-
-  return data as CallLog[]
-}
-
-// Utility function to create a new phone number
-export async function createPhoneNumber(userId: string, phoneNumberData: Partial<PhoneNumber>) {
-  const { data, error } = await supabase
-    .from("phone_numbers")
-    .insert({
-      ...phoneNumberData,
-      user_id: userId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .select()
-    .single()
-
-  if (error) {
-    console.error("Error creating phone number:", error)
-    throw new Error(`Failed to create phone number: ${error.message}`)
-  }
-
-  return data as PhoneNumber
-}
-
-// API handler wrapper to ensure user authentication and data isolation
-export function withUserAuth<T>(handler: (req: NextRequest, userId: string) => Promise<T>) {
-  return async (req: NextRequest) => {
-    const user = await getUserFromRequest(req)
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    try {
-      return await handler(req, user.id)
-    } catch (error) {
-      console.error("API error:", error)
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Unknown error occurred" },
-        { status: 500 },
-      )
-    }
-  }
 }

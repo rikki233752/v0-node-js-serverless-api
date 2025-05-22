@@ -1,17 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getUserFromRequest } from "@/lib/auth-utils"
-import { supabase } from "@/lib/supabase"
 
 export async function POST(request: NextRequest) {
   try {
-    // Get the current authenticated user
-    const user = await getUserFromRequest(request)
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { apiKey, name, description, phoneNumberId } = await request.json()
+    const { apiKey, name, description } = await request.json()
 
     if (!apiKey) {
       return NextResponse.json({ status: "error", message: "API key is required" }, { status: 400 })
@@ -94,39 +85,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Store the pathway in the database with user_id and phone_number_id
-    const { error: dbError } = await supabase.from("pathways").insert({
-      user_id: user.id, // Associate with the current user
-      phone_number_id: phoneNumberId || null,
-      name,
-      description: description || `Created on ${new Date().toISOString()}`,
-      bland_id: data.id || null,
-      data: {}, // Empty data initially
-      creator_id: user.id,
-      updater_id: user.id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-
-    if (dbError) {
-      console.error("Error storing pathway in database:", dbError)
-      return NextResponse.json(
-        {
-          status: "error",
-          message: "Pathway created in Bland.ai but failed to store in database",
-          error: dbError,
-        },
-        { status: 500 },
-      )
-    }
-
     return NextResponse.json({
       status: "success",
       message: "Pathway created successfully",
-      data: {
-        ...data,
-        user_id: user.id, // Include user_id in the response for debugging
-      },
+      data,
     })
   } catch (error) {
     console.error("Error creating pathway:", error)

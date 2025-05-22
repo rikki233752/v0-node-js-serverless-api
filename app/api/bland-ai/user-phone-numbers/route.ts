@@ -1,32 +1,28 @@
 import { NextResponse } from "next/server"
-import { getUserFromRequest } from "@/lib/auth-utils"
-import { supabase } from "@/lib/supabase"
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    // Get the current authenticated user
-    const user = await getUserFromRequest(request)
+    // In a real implementation, you would fetch this from Bland.ai API
+    // using the user's API key or session token
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    // For now, we'll return the purchased phone number from the Phone Numbers page
+    const purchasedNumbers = [
+      {
+        id: "1",
+        number: "+19787836427",
+        location: "Massachusetts",
+        type: "Voice",
+        status: "Active",
+        purchaseDate: "2025-04-10",
+        monthlyFee: "$1.00",
+        assignedTo: "My Pathway",
+      },
+      // You can add more purchased numbers here if needed
+    ]
 
-    // Query phone numbers for the current user only
-    const { data, error } = await supabase
-      .from("phone_numbers")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("purchased_at", { ascending: false })
-
-    if (error) {
-      console.error("Error fetching phone numbers:", error)
-      return NextResponse.json({ error: "Failed to fetch phone numbers" }, { status: 500 })
-    }
-
-    // Return the user's phone numbers
-    return NextResponse.json(data)
+    return NextResponse.json(purchasedNumbers)
   } catch (error) {
-    console.error("Error in user-phone-numbers API:", error)
-    return NextResponse.json({ error: "An unexpected error occurred" }, { status: 500 })
+    console.error("Error fetching user phone numbers:", error)
+    return NextResponse.json({ error: "Failed to fetch phone numbers" }, { status: 500 })
   }
 }

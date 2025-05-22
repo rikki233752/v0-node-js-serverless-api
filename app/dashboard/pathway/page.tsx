@@ -9,28 +9,20 @@ import { Badge } from "@/components/ui/badge"
 import { Phone, ArrowRight, Plus, AlertCircle } from "lucide-react"
 import { formatPhoneNumber } from "@/utils/phone-utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { useAuth } from "@/contexts/auth-context"
 
 export default function PathwayListingPage() {
   const router = useRouter()
-  const { user } = useAuth()
   const [phoneNumbers, setPhoneNumbers] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Only fetch if user is authenticated
-    if (!user) {
-      setIsLoading(false)
-      return
-    }
-
-    // Fetch phone numbers from the API
+    // Fetch phone numbers from the same API used in the Phone Numbers page
     const fetchPhoneNumbers = async () => {
       try {
         setIsLoading(true)
 
-        // Use the API endpoint that filters by user_id
+        // Use the same API endpoint as the Phone Numbers page
         const response = await fetch("/api/bland-ai/user-phone-numbers")
 
         if (!response.ok) {
@@ -56,7 +48,7 @@ export default function PathwayListingPage() {
     }
 
     fetchPhoneNumbers()
-  }, [user])
+  }, [])
 
   const handleManagePathway = (phoneNumber: string) => {
     // Normalize the phone number to use as a route parameter
