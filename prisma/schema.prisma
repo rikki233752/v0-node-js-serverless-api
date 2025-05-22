@@ -37,3 +37,15 @@ model EventLog {
   @@index([pixelId])
   @@index([createdAt])
 }
+
+model ShopifyStore {
+  id          String   @id @default(cuid())
+  domain      String   @unique
+  accessToken String
+  scope       String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([domain])
+}
