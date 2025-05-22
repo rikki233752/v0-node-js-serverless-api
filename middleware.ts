@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server"
 import { isShopInstalled } from "./lib/db-auth"
 import { isValidShop } from "./lib/shopify"
 
-// Define which paths should be protected
+// Update the matcher to exclude the login page
 export const config = {
   matcher: [
     /*
@@ -15,15 +15,24 @@ export const config = {
      * 5. /_vercel (Vercel internals)
      * 6. All files in /public (e.g. favicon.ico)
      * 7. The root path (/)
+     * 8. The login page (/login)
      */
-    "/((?!api/auth|api/debug-redirect|_next|_static|_vercel|[\\w-]+\\.\\w+|$).*)",
+    "/((?!api/auth|api/debug-redirect|login|_next|_static|_vercel|[\\w-]+\\.\\w+|$).*)",
   ],
 }
 
+// Update the middleware function to handle admin routes
 export async function middleware(request: NextRequest) {
-  // Get query parameters
   const url = new URL(request.url)
   const shop = url.searchParams.get("shop")
+
+  // Special handling for admin routes
+  if (request.nextUrl.pathname.startsWith("/admin") || request.nextUrl.pathname.startsWith("/test-pixel")) {
+    // For admin routes, redirect to login page if not authenticated
+    return NextResponse.redirect(
+      new URL(`/login?redirect=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`, request.url),
+    )
+  }
 
   // If no shop parameter, allow access to the landing page
   if (!shop) {

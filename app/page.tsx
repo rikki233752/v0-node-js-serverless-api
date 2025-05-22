@@ -44,10 +44,10 @@ export default function Home({
 
           {/* Admin Dashboard Access */}
           <div className="flex justify-center gap-4 mb-8">
-            <Link href={`/admin/dashboard${shop ? `?shop=${shop}` : ""}`}>
+            <Link href="/login?redirect=/admin/dashboard">
               <Button className="bg-blue-600 hover:bg-blue-700">Admin Dashboard</Button>
             </Link>
-            <Link href={`/test-pixel${shop ? `?shop=${shop}` : ""}`}>
+            <Link href="/login?redirect=/test-pixel">
               <Button variant="outline" className="bg-gray-800 hover:bg-gray-700 text-white">
                 Test Pixel Tool
               </Button>
