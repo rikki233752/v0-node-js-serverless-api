@@ -12,6 +12,7 @@ interface ShopifyInstallButtonProps {
   initialShop?: string | null
   className?: string
   buttonText?: string
+  disabled?: boolean
 }
 
 export function ShopifyInstallButton({
@@ -21,6 +22,7 @@ export function ShopifyInstallButton({
   initialShop = null,
   className = "",
   buttonText = "Install App",
+  disabled = false,
 }: ShopifyInstallButtonProps) {
   const [shopDomain, setShopDomain] = useState(initialShop || "")
   const [showInput, setShowInput] = useState(false)
@@ -34,6 +36,9 @@ export function ShopifyInstallButton({
   }, [initialShop])
 
   const handleInstall = () => {
+    // If disabled, do nothing
+    if (disabled) return
+
     if (!showInput) {
       setShowInput(true)
       return
@@ -69,6 +74,12 @@ export function ShopifyInstallButton({
     // Clear any previous errors
     setError(null)
 
+    // Check if API key is provided
+    if (!apiKey) {
+      setError("API key is not configured. Please contact the administrator.")
+      return
+    }
+
     // Build the installation URL
     const installUrl = `https://${formattedShop}/admin/oauth/authorize?client_id=${apiKey}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`
 
@@ -93,13 +104,14 @@ export function ShopifyInstallButton({
             placeholder="yourstore.myshopify.com"
             className="flex-grow"
             onKeyDown={(e) => e.key === "Enter" && handleInstall()}
+            disabled={disabled}
           />
-          <Button onClick={handleInstall} className="whitespace-nowrap">
+          <Button onClick={handleInstall} className="whitespace-nowrap" disabled={disabled}>
             {buttonText}
           </Button>
         </div>
       ) : (
-        <Button onClick={handleInstall} className={className}>
+        <Button onClick={handleInstall} className={className} disabled={disabled}>
           {buttonText}
         </Button>
       )}

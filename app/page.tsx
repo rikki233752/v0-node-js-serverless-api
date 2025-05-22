@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { ShopifyInstallButton } from "@/components/shopify-install-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertTriangle } from "lucide-react"
 
 export default function Home({
   searchParams,
@@ -16,6 +18,9 @@ export default function Home({
   // Get shop from query params (if available)
   const shop = typeof searchParams.shop === "string" ? searchParams.shop : null
 
+  // Check if API key is set
+  const isApiKeySet = !!apiKey
+
   return (
     <div className="min-h-screen bg-white">
       <header className="bg-gray-900 text-white py-16">
@@ -24,6 +29,17 @@ export default function Home({
           <p className="text-xl max-w-2xl mx-auto mb-8">
             Send events to Facebook Conversions API securely, bypass ad blockers, and protect user data
           </p>
+
+          {/* API Key Warning */}
+          {!isApiKeySet && (
+            <Alert variant="destructive" className="max-w-md mx-auto mb-6">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Missing API Key</AlertTitle>
+              <AlertDescription>
+                The Shopify API key is not set. Please add the SHOPIFY_API_KEY environment variable.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Install Button */}
           <div className="max-w-md mx-auto mt-8">
@@ -34,7 +50,11 @@ export default function Home({
               initialShop={shop}
               buttonText="Install on Shopify"
               className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-3"
+              disabled={!isApiKeySet}
             />
+            {!isApiKeySet && (
+              <p className="text-sm text-gray-300 mt-2">Installation is disabled until the API key is configured.</p>
+            )}
           </div>
         </div>
       </header>
@@ -119,7 +139,11 @@ export default function Home({
               initialShop={shop}
               buttonText="Install Now"
               className="bg-blue-600 hover:bg-blue-700 text-lg py-3 px-8"
+              disabled={!isApiKeySet}
             />
+            {!isApiKeySet && (
+              <p className="text-sm text-gray-300 mt-2">Installation is disabled until the API key is configured.</p>
+            )}
           </div>
         </div>
       </main>
