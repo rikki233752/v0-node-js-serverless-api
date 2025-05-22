@@ -6,6 +6,13 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const shop = url.searchParams.get("shop")
 
+  // Log the HOST environment variable
+  console.log("HOST environment variable:", process.env.HOST)
+
+  // Calculate the redirect URI that will be used
+  const redirectUri = `${process.env.HOST}/api/auth/callback`
+  console.log("Calculated redirect URI:", redirectUri)
+
   // If no shop parameter is provided, redirect to the home page
   if (!shop) {
     return NextResponse.redirect(new URL("/", request.url))

@@ -14,8 +14,9 @@ export const config = {
      * 4. /_vercel (Vercel internals)
      * 5. All files in /public (e.g. favicon.ico)
      * 6. The root path (/)
+     * 7. /debug routes
      */
-    "/((?!api/auth|_next|_static|_vercel|[\\w-]+\\.\\w+|$).*)",
+    "/((?!api/auth|_next|_static|_vercel|debug|[\\w-]+\\.\\w+|$).*)",
   ],
 }
 
