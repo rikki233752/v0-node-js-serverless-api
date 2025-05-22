@@ -6,8 +6,13 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const shop = url.searchParams.get("shop")
 
+  // If no shop parameter is provided, redirect to the home page
+  if (!shop) {
+    return NextResponse.redirect(new URL("/", request.url))
+  }
+
   // Validate shop parameter
-  if (!shop || !isValidShop(shop)) {
+  if (!isValidShop(shop)) {
     return NextResponse.redirect(new URL(`/api/auth/error?error=Invalid shop parameter: ${shop}`, request.url))
   }
 

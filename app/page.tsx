@@ -2,12 +2,19 @@ import Link from "next/link"
 import { ShopifyInstallButton } from "@/components/shopify-install-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
-export default function Home() {
+export default function Home({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined }
+}) {
   // Get environment variables
   const apiKey = process.env.SHOPIFY_API_KEY || ""
   const host = process.env.HOST || ""
   const scopes = process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events"
   const redirectUri = `${host}/api/auth/callback`
+
+  // Get shop from query params (if available)
+  const shop = typeof searchParams.shop === "string" ? searchParams.shop : null
 
   return (
     <div className="min-h-screen bg-white">
@@ -24,6 +31,7 @@ export default function Home() {
               apiKey={apiKey}
               redirectUri={redirectUri}
               scopes={scopes}
+              initialShop={shop}
               buttonText="Install on Shopify"
               className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-3"
             />
@@ -108,6 +116,7 @@ export default function Home() {
               apiKey={apiKey}
               redirectUri={redirectUri}
               scopes={scopes}
+              initialShop={shop}
               buttonText="Install Now"
               className="bg-blue-600 hover:bg-blue-700 text-lg py-3 px-8"
             />

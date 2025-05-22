@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -9,6 +9,7 @@ interface ShopifyInstallButtonProps {
   apiKey: string
   redirectUri: string
   scopes: string
+  initialShop?: string | null
   className?: string
   buttonText?: string
 }
@@ -17,12 +18,20 @@ export function ShopifyInstallButton({
   apiKey,
   redirectUri,
   scopes,
+  initialShop = null,
   className = "",
   buttonText = "Install App",
 }: ShopifyInstallButtonProps) {
-  const [shopDomain, setShopDomain] = useState("")
+  const [shopDomain, setShopDomain] = useState(initialShop || "")
   const [showInput, setShowInput] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // If initialShop is provided, show the input field
+  useEffect(() => {
+    if (initialShop) {
+      setShowInput(true)
+    }
+  }, [initialShop])
 
   const handleInstall = () => {
     if (!showInput) {
@@ -32,6 +41,12 @@ export function ShopifyInstallButton({
 
     // Validate shop domain
     let formattedShop = shopDomain.trim().toLowerCase()
+
+    // If empty, show error
+    if (!formattedShop) {
+      setError("Please enter your Shopify store domain")
+      return
+    }
 
     // If they didn't add .myshopify.com, add it for them
     if (!formattedShop.includes(".myshopify.com")) {

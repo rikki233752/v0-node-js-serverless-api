@@ -13,8 +13,9 @@ export const config = {
      * 3. /_static (inside /public)
      * 4. /_vercel (Vercel internals)
      * 5. All files in /public (e.g. favicon.ico)
+     * 6. The root path (/)
      */
-    "/((?!api/auth|_next|_static|_vercel|[\\w-]+\\.\\w+).*)",
+    "/((?!api/auth|_next|_static|_vercel|[\\w-]+\\.\\w+|$).*)",
   ],
 }
 
@@ -23,9 +24,15 @@ export async function middleware(request: NextRequest) {
   const url = new URL(request.url)
   const shop = url.searchParams.get("shop")
 
-  // If no shop parameter, redirect to shopify app
+  // If no shop parameter, allow access to the landing page
   if (!shop) {
-    return NextResponse.redirect(new URL("/api/auth", request.url))
+    // If trying to access a protected route without a shop parameter, redirect to the landing page
+    if (request.nextUrl.pathname !== "/") {
+      return NextResponse.redirect(new URL("/", request.url))
+    }
+
+    // Otherwise, allow access to the landing page
+    return NextResponse.next()
   }
 
   // Check if the shop is valid
