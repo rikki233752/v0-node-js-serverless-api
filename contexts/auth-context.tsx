@@ -1,228 +1,296 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
-import { useRouter } from "next/navigation"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { supabase } from "@/lib/supabase"
 
-export type User = {
+export interface User {
   id: string
-  name: string
-  email: string
-  company: string
-  role: string
-  phoneNumber?: string
-  preferences?: Record<string, any>
-  lastLogin?: string
+  email?: string | null
+  name?: string | null
+  company?: string | null
+  phoneNumber?: string | null
+  role?: string
+  twoFactorEnabled?: boolean
 }
 
 interface AuthContextType {
   user: User | null
-  isLoading: boolean
+  loading: boolean
   login: (email: string, password: string) => Promise<{ success: boolean; message: string }>
-  signup: (userData: SignupData) => Promise<{ success: boolean; message: string }>
-  logout: () => void
-  resetPassword: (email: string) => Promise<{ success: boolean; message: string }>
+  signup: (data: SignupData) => Promise<{ success: boolean; message: string }>
+  logout: () => Promise<void>
   updateProfile: (data: Partial<User>) => Promise<{ success: boolean; message: string }>
-  isAuthenticated: boolean
+  enableTwoFactor: () => Promise<{ success: boolean; message: string; setupData?: any }>
+  verifyTwoFactor: (code: string) => Promise<{ success: boolean; message: string }>
 }
 
-export interface SignupData {
-  name: string
+interface SignupData {
   email: string
   password: string
+  name: string
   company?: string
-  phoneNumber?: string
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// For demo purposes - would be replaced with actual API calls
-const MOCK_USERS_KEY = "bland-mock-users"
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
-  const isAuthenticated = !!user
+  const [loading, setLoading] = useState(true)
 
-  // Load user on mount
   useEffect(() => {
-    const storedUser = localStorage.getItem("bland-user")
-    if (storedUser) {
+    // Check for existing session
+    const checkSession = async () => {
       try {
-        setUser(JSON.parse(storedUser))
+        const { data, error } = await supabase.auth.getSession()
+
+        if (error) {
+          console.error("Error checking session:", error)
+          setUser(null)
+          setLoading(false)
+          return
+        }
+
+        if (data.session) {
+          // Get user profile from database
+          const { data: userData, error: userError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", data.session.user.id)
+            .single()
+
+          if (userError) {
+            console.error("Error fetching user profile:", userError)
+            // Use basic user info from auth
+            setUser({
+              id: data.session.user.id,
+              email: data.session.user.email,
+              name: data.session.user.user_metadata?.name,
+            })
+          } else {
+            setUser(userData)
+          }
+        } else {
+          setUser(null)
+        }
       } catch (error) {
-        console.error("Failed to parse stored user:", error)
-        localStorage.removeItem("bland-user")
+        console.error("Error in checkSession:", error)
+        setUser(null)
+      } finally {
+        setLoading(false)
       }
     }
-    setIsLoading(false)
+
+    checkSession()
+
+    // Set up auth state change listener
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session) {
+        // Get user profile from database
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", session.user.id)
+          .single()
+
+        if (userError) {
+          console.error("Error fetching user profile:", userError)
+          // Use basic user info from auth
+          setUser({
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.user_metadata?.name,
+          })
+        } else {
+          setUser(userData)
+        }
+      } else if (event === "SIGNED_OUT") {
+        setUser(null)
+      }
+    })
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
   }, [])
 
-  // Mock user storage - in a real app, this would be handled by a backend
-  const getMockUsers = (): Record<string, User & { password: string }> => {
-    const users = localStorage.getItem(MOCK_USERS_KEY)
-    return users ? JSON.parse(users) : {}
-  }
-
-  const saveMockUsers = (users: Record<string, User & { password: string }>) => {
-    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users))
-  }
-
-  const signup = async (userData: SignupData): Promise<{ success: boolean; message: string }> => {
-    setIsLoading(true)
+  const login = async (email: string, password: string) => {
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-      const users = getMockUsers()
-
-      // Check if email already exists
-      if (users[userData.email]) {
-        return { success: false, message: "Email already in use" }
+      if (error) {
+        return { success: false, message: error.message }
       }
 
-      // Validate password strength
-      if (userData.password.length < 8) {
-        return { success: false, message: "Password must be at least 8 characters long" }
-      }
-
-      // Create new user
-      const newUser: User & { password: string } = {
-        id: `user_${Date.now()}`,
-        name: userData.name,
-        email: userData.email,
-        company: userData.company || userData.email.split("@")[1].split(".")[0],
-        role: "User",
-        password: userData.password, // In a real app, this would be hashed
-        phoneNumber: userData.phoneNumber,
-        lastLogin: new Date().toISOString(),
-      }
-
-      // Save user
-      users[userData.email] = newUser
-      saveMockUsers(users)
-
-      // Set the user as logged in immediately after signup
-      const sessionUser = { ...newUser }
-      delete sessionUser.password // Remove password from session data
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
-
-      return {
+      // Log login activity
+      await supabase.from("user_login_activity").insert({
+        user_id: data.user.id,
+        login_timestamp: new Date().toISOString(),
         success: true,
-        message: "Account created successfully! Redirecting to dashboard...",
-      }
-    } catch (error) {
-      console.error("Signup error:", error)
-      return { success: false, message: "An unexpected error occurred. Please try again." }
-    } finally {
-      setIsLoading(false)
-    }
-  }
+        ip_address: "client-side", // We can't get IP on client side
+        user_agent: navigator.userAgent,
+      })
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
-    setIsLoading(true)
-    try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
-
-      const users = getMockUsers()
-      const user = users[email]
-
-      // Check if user exists and password matches
-      if (!user || user.password !== password) {
-        return { success: false, message: "Invalid email or password" }
-      }
-
-      // Update last login
-      user.lastLogin = new Date().toISOString()
-      users[email] = user
-      saveMockUsers(users)
-
-      // Create session
-      const sessionUser = { ...user }
-      delete sessionUser.password // Remove password from session data
-
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
+      // Update last login time
+      await supabase.from("users").update({ last_login: new Date().toISOString() }).eq("id", data.user.id)
 
       return { success: true, message: "Login successful" }
     } catch (error) {
       console.error("Login error:", error)
-      return { success: false, message: "An unexpected error occurred. Please try again." }
-    } finally {
-      setIsLoading(false)
+      return { success: false, message: "An unexpected error occurred" }
     }
   }
 
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem("bland-user")
-    localStorage.removeItem("bland-api-key") // Also clear API key on logout
-    router.push("/login")
-  }
-
-  const resetPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
+  const signup = async (data: SignupData) => {
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            name: data.name,
+            company: data.company,
+          },
+        },
+      })
 
-      const users = getMockUsers()
-
-      // Check if user exists
-      if (!users[email]) {
-        // For security, don't reveal if email exists or not
-        return {
-          success: true,
-          message: "If your email is registered, you will receive password reset instructions.",
-        }
+      if (authError) {
+        return { success: false, message: authError.message }
       }
 
-      // In a real app, we would send a password reset email here
-      // For demo, we'll simulate it was sent
-
-      return {
-        success: true,
-        message: "If your email is registered, you will receive password reset instructions.",
+      if (!authData.user) {
+        return { success: false, message: "Failed to create user" }
       }
+
+      // Create user profile
+      const { error: profileError } = await supabase.from("users").insert({
+        id: authData.user.id,
+        email: data.email,
+        name: data.name,
+        company: data.company,
+        role: "user", // Default role
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (profileError) {
+        console.error("Error creating user profile:", profileError)
+        // Continue anyway since the auth user was created
+      }
+
+      // Create default user settings
+      const { error: settingsError } = await supabase.from("user_settings").insert({
+        id: authData.user.id,
+        plan_type: "free",
+        max_pathways: 3,
+        max_phone_numbers: 1,
+        can_access_advanced_nodes: false,
+        can_access_analytics: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (settingsError) {
+        console.error("Error creating user settings:", settingsError)
+        // Continue anyway since the auth user was created
+      }
+
+      return { success: true, message: "Account created successfully" }
     } catch (error) {
-      console.error("Reset password error:", error)
-      return { success: false, message: "An unexpected error occurred. Please try again." }
+      console.error("Signup error:", error)
+      return { success: false, message: "An unexpected error occurred" }
     }
   }
 
-  const updateProfile = async (data: Partial<User>): Promise<{ success: boolean; message: string }> => {
-    if (!user) {
-      return { success: false, message: "You must be logged in to update your profile" }
-    }
+  const logout = async () => {
+    await supabase.auth.signOut()
+    setUser(null)
+  }
 
+  const updateProfile = async (data: Partial<User>) => {
     try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 800))
-
-      const users = getMockUsers()
-      const currentUser = users[user.email]
-
-      if (!currentUser) {
-        return { success: false, message: "User not found" }
+      if (!user) {
+        return { success: false, message: "Not logged in" }
       }
 
-      // Update user data
-      const updatedUser = { ...currentUser, ...data }
-      users[user.email] = updatedUser
-      saveMockUsers(users)
+      // Update user profile
+      const { error } = await supabase
+        .from("users")
+        .update({
+          ...data,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
 
-      // Update session
-      const sessionUser = { ...updatedUser }
-      delete sessionUser.password
+      if (error) {
+        return { success: false, message: error.message }
+      }
 
-      setUser(sessionUser)
-      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
+      // Update user in state
+      setUser((prev) => (prev ? { ...prev, ...data } : null))
 
       return { success: true, message: "Profile updated successfully" }
     } catch (error) {
       console.error("Update profile error:", error)
-      return { success: false, message: "An unexpected error occurred. Please try again." }
+      return { success: false, message: "An unexpected error occurred" }
+    }
+  }
+
+  const enableTwoFactor = async () => {
+    try {
+      if (!user) {
+        return { success: false, message: "Not logged in" }
+      }
+
+      // In a real app, you would generate a TOTP secret and QR code
+      // For this example, we'll just simulate it
+      const setupData = {
+        qrCodeUrl: "https://placeholder.svg?height=200&width=200&query=QR%20Code%20Placeholder",
+        secret: "EXAMPLESECRET123456",
+      }
+
+      return { success: true, message: "Two-factor authentication setup ready", setupData }
+    } catch (error) {
+      console.error("Enable 2FA error:", error)
+      return { success: false, message: "An unexpected error occurred" }
+    }
+  }
+
+  const verifyTwoFactor = async (code: string) => {
+    try {
+      if (!user) {
+        return { success: false, message: "Not logged in" }
+      }
+
+      // In a real app, you would verify the TOTP code
+      // For this example, we'll just check if it's "123456"
+      if (code !== "123456") {
+        return { success: false, message: "Invalid verification code" }
+      }
+
+      // Update user profile to enable 2FA
+      const { error } = await supabase
+        .from("users")
+        .update({
+          twoFactorEnabled: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+
+      if (error) {
+        return { success: false, message: error.message }
+      }
+
+      // Update user in state
+      setUser((prev) => (prev ? { ...prev, twoFactorEnabled: true } : null))
+
+      return { success: true, message: "Two-factor authentication enabled successfully" }
+    } catch (error) {
+      console.error("Verify 2FA error:", error)
+      return { success: false, message: "An unexpected error occurred" }
     }
   }
 
@@ -230,13 +298,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        isLoading,
+        loading,
         login,
         signup,
         logout,
-        resetPassword,
         updateProfile,
-        isAuthenticated,
+        enableTwoFactor,
+        verifyTwoFactor,
       }}
     >
       {children}

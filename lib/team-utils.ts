@@ -1,91 +1,30 @@
-import { prisma } from "@/lib/prisma"
+import { supabase } from "./supabase"
 
-// Check if a user has a specific permission in a team
 export async function checkTeamPermission(teamId: string, userId: string, allowedRoles: string[]): Promise<boolean> {
-  // First check if user is the team owner
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-  })
+  // Check if user is team owner
+  const { data: team, error: teamError } = await supabase.from("teams").select("owner_id").eq("id", teamId).single()
 
-  if (!team) {
+  if (teamError) {
+    console.error("Error checking team ownership:", teamError)
     return false
   }
 
-  if (team.ownerId === userId) {
+  if (team.owner_id === userId) {
     return true // Team owner has all permissions
   }
 
-  // Check if user is a member with an allowed role
-  const membership = await prisma.teamMember.findUnique({
-    where: {
-      teamId_userId: {
-        teamId,
-        userId,
-      },
-    },
-  })
+  // Check if user is a member with allowed role
+  const { data: membership, error: memberError } = await supabase
+    .from("team_members")
+    .select("role")
+    .eq("team_id", teamId)
+    .eq("user_id", userId)
+    .single()
 
-  if (!membership) {
-    return false // User is not a member
-  }
-
-  return allowedRoles.includes(membership.role)
-}
-
-// Check if a user can edit a pathway
-export async function canEditPathway(pathwayId: string, userId: string): Promise<boolean> {
-  const pathway = await prisma.pathway.findUnique({
-    where: { id: pathwayId },
-    include: {
-      team: true,
-    },
-  })
-
-  if (!pathway) {
+  if (memberError) {
+    console.error("Error checking team membership:", memberError)
     return false
   }
 
-  // If pathway has no team, check if user is the creator
-  if (!pathway.teamId) {
-    return pathway.creatorId === userId
-  }
-
-  // Check team permissions
-  return checkTeamPermission(pathway.teamId, userId, ["admin", "editor"])
-}
-
-// Check if a user can view a pathway
-export async function canViewPathway(pathwayId: string, userId: string): Promise<boolean> {
-  const pathway = await prisma.pathway.findUnique({
-    where: { id: pathwayId },
-    include: {
-      team: true,
-    },
-  })
-
-  if (!pathway) {
-    return false
-  }
-
-  // If pathway has no team, check if user is the creator
-  if (!pathway.teamId) {
-    return pathway.creatorId === userId
-  }
-
-  // Check team permissions (all roles can view)
-  return checkTeamPermission(pathway.teamId, userId, ["admin", "editor", "viewer"])
-}
-
-// Log an activity
-export async function logActivity(pathwayId: string, userId: string, action: string, details?: any): Promise<void> {
-  await prisma.activity.create({
-    data: {
-      pathway: {
-        connect: { id: pathwayId },
-      },
-      userId,
-      action,
-      details: details ? details : undefined,
-    },
-  })
+  return membership && allowedRoles.includes(membership.role)
 }

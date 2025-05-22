@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { getUserFromRequest } from "@/lib/auth-utils"
-import { checkTeamPermission } from "@/lib/team-utils"
+import { getTeamById, updateTeam, deleteTeam, checkTeamPermission } from "@/lib/db-utils"
 
 // Get a specific team
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -19,51 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "You don't have access to this team" }, { status: 403 })
     }
 
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-          },
-        },
-        pathways: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-            createdAt: true,
-            updatedAt: true,
-            creator: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            updater: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    })
-
+    const team = await getTeamById(teamId)
     if (!team) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 })
     }
@@ -92,14 +47,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "You don't have permission to update this team" }, { status: 403 })
     }
 
-    const updatedTeam = await prisma.team.update({
-      where: { id: teamId },
-      data: {
-        name,
-        description,
-        updatedAt: new Date(),
-      },
-    })
+    await updateTeam(teamId, { name, description })
+    const updatedTeam = await getTeamById(teamId)
 
     return NextResponse.json({ team: updatedTeam })
   } catch (error) {
@@ -119,23 +68,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     const teamId = params.id
 
     // Check if user is the owner
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-    })
-
+    const team = await getTeamById(teamId)
     if (!team) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 })
     }
 
-    if (team.ownerId !== user.id) {
+    if (team.owner.id !== user.id) {
       return NextResponse.json({ error: "Only the team owner can delete the team" }, { status: 403 })
     }
 
-    // Delete the team (this will cascade delete members due to onDelete: Cascade)
-    await prisma.team.delete({
-      where: { id: teamId },
-    })
-
+    await deleteTeam(teamId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error deleting team:", error)

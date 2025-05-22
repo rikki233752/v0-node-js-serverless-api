@@ -1,72 +1,69 @@
-import { cookies } from "next/headers"
-import { jwtVerify } from "jose"
 import type { NextRequest } from "next/server"
-import * as bcrypt from "bcryptjs"
+import { supabase } from "./supabase"
+import { cookies } from "next/headers"
+import { createServerClient } from "@supabase/ssr"
 
-// Secret key for JWT verification
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
-
-export interface User {
-  id: string
-  email?: string | null
-  name?: string | null
-}
-
-// Get user from request (server-side)
-export async function getUserFromRequest(req: NextRequest): Promise<User | null> {
+export async function getUserFromRequest(req: NextRequest) {
   try {
-    // Try to get the token from the Authorization header
+    // Get the token from the request
     const authHeader = req.headers.get("authorization")
-    let token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null
+    let token: string | undefined
 
-    // If no token in header, try to get from cookies
-    if (!token) {
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      token = authHeader.substring(7)
+    } else {
+      // Try to get token from cookie
       const cookieStore = cookies()
-      token = cookieStore.get("authToken")?.value
+      const supabaseClient = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            get(name: string) {
+              return cookieStore.get(name)?.value
+            },
+          },
+        },
+      )
+
+      const {
+        data: { session },
+      } = await supabaseClient.auth.getSession()
+      token = session?.access_token
     }
 
     if (!token) {
-      // No token found
       return null
     }
 
-    // Verify the token
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(JWT_SECRET))
+    // Verify the token and get user
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token)
 
-    // Return the user data from the token
-    return payload.user as User
+    if (error || !user) {
+      console.error("Error getting user from token:", error)
+      return null
+    }
+
+    // Get additional user data from the database
+    const { data: userData, error: userError } = await supabase.from("users").select("*").eq("id", user.id).single()
+
+    if (userError) {
+      console.error("Error getting user data:", userError)
+      // Return basic user info if we can't get the full profile
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.user_metadata?.name,
+        role: "user",
+      }
+    }
+
+    return userData
   } catch (error) {
-    console.error("Error verifying token:", error)
+    console.error("Error in getUserFromRequest:", error)
     return null
   }
-}
-
-// Get user from cookies (client-side)
-export function getUserFromLocalStorage(): User | null {
-  if (typeof window === "undefined") {
-    return null
-  }
-
-  const userJson = localStorage.getItem("user")
-  if (!userJson) {
-    return null
-  }
-
-  try {
-    return JSON.parse(userJson)
-  } catch (error) {
-    console.error("Error parsing user from localStorage:", error)
-    return null
-  }
-}
-
-// Hash a password
-export async function hashPassword(password: string): Promise<string> {
-  const saltRounds = 10
-  return bcrypt.hash(password, saltRounds)
-}
-
-// Compare a password with a hash
-export async function comparePasswords(password: string, hash: string): Promise<boolean> {
-  return bcrypt.compare(password, hash)
 }

@@ -1,37 +1,41 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { getUserFromRequest } from "@/lib/auth-utils"
+import { createTeam, getTeamsByUserId } from "@/lib/db-utils"
 
-export async function GET(request: Request) {
+// Get all teams for the current user
+export async function GET(req: NextRequest) {
   try {
-    const user = await getUserFromRequest(request)
-
+    const user = await getUserFromRequest(req)
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // For now, return mock data until we fully implement the database functions
-    const mockTeams = [
-      {
-        id: "1",
-        name: "Sales Team",
-        description: "Team responsible for sales and customer acquisition",
-        ownerId: user.id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: "2",
-        name: "Support Team",
-        description: "Team responsible for customer support",
-        ownerId: user.id,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ]
-
-    return NextResponse.json(mockTeams)
+    const teams = await getTeamsByUserId(user.id)
+    return NextResponse.json({ teams })
   } catch (error) {
     console.error("Error fetching teams:", error)
     return NextResponse.json({ error: "Failed to fetch teams" }, { status: 500 })
+  }
+}
+
+// Create a new team
+export async function POST(req: NextRequest) {
+  try {
+    const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { name, description } = await req.json()
+
+    if (!name) {
+      return NextResponse.json({ error: "Team name is required" }, { status: 400 })
+    }
+
+    const team = await createTeam(name, description || null, user.id)
+    return NextResponse.json({ team }, { status: 201 })
+  } catch (error) {
+    console.error("Error creating team:", error)
+    return NextResponse.json({ error: "Failed to create team" }, { status: 500 })
   }
 }

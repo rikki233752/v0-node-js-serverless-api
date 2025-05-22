@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { getUserFromRequest } from "@/lib/auth-utils"
-import { canViewPathway } from "@/lib/team-utils"
+import { getActivitiesByPathwayId, canViewPathway } from "@/lib/db-utils"
 
 // Get activities for a specific pathway
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -19,43 +18,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: "You don't have access to this pathway" }, { status: 403 })
     }
 
-    // Get URL parameters
+    // Get query parameters
     const url = new URL(req.url)
     const limit = Number.parseInt(url.searchParams.get("limit") || "20")
     const offset = Number.parseInt(url.searchParams.get("offset") || "0")
 
-    // Get activities for this pathway
-    const activities = await prisma.activity.findMany({
-      where: { pathwayId },
-      include: {
-        pathway: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      take: limit,
-      skip: offset,
-    })
+    const activities = await getActivitiesByPathwayId(pathwayId, limit, offset)
 
-    // Get total count
-    const totalCount = await prisma.activity.count({
-      where: { pathwayId },
-    })
-
-    return NextResponse.json({
-      activities,
-      pagination: {
-        total: totalCount,
-        limit,
-        offset,
-        hasMore: offset + limit < totalCount,
-      },
-    })
+    return NextResponse.json({ activities })
   } catch (error) {
     console.error("Error fetching activities:", error)
     return NextResponse.json({ error: "Failed to fetch activities" }, { status: 500 })

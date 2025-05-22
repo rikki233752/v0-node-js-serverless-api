@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
 import { getUserFromRequest } from "@/lib/auth-utils"
-import { checkTeamPermission } from "@/lib/team-utils"
+import { checkTeamPermission, updateTeamMemberRole, removeTeamMember } from "@/lib/db-utils"
+import { supabase } from "@/lib/supabase"
 
 // Update a team member's role
 export async function PUT(req: NextRequest, { params }: { params: { id: string; userId: string } }) {
@@ -22,41 +22,37 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string; 
     }
 
     // Get the team to check if the user being updated is the owner
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-    })
+    const { data: team, error: teamError } = await supabase.from("teams").select("owner_id").eq("id", teamId).single()
 
-    if (!team) {
+    if (teamError) {
+      console.error("Error fetching team:", teamError)
       return NextResponse.json({ error: "Team not found" }, { status: 404 })
     }
 
     // Cannot change the role of the team owner
-    if (team.ownerId === memberId) {
+    if (team.owner_id === memberId) {
       return NextResponse.json({ error: "Cannot change the role of the team owner" }, { status: 400 })
     }
 
-    const updatedMember = await prisma.teamMember.update({
-      where: {
-        teamId_userId: {
-          teamId,
-          userId: memberId,
-        },
-      },
-      data: {
-        role,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    })
+    await updateTeamMemberRole(teamId, memberId, role)
 
-    return NextResponse.json({ member: updatedMember })
+    // Get the updated member
+    const { data: member, error } = await supabase
+      .from("team_members")
+      .select(`
+        *,
+        user:user_id(id, name, email)
+      `)
+      .eq("team_id", teamId)
+      .eq("user_id", memberId)
+      .single()
+
+    if (error) {
+      console.error("Error fetching updated member:", error)
+      return NextResponse.json({ error: "Failed to fetch updated member" }, { status: 500 })
+    }
+
+    return NextResponse.json({ member })
   } catch (error) {
     console.error("Error updating team member:", error)
     return NextResponse.json({ error: "Failed to update team member" }, { status: 500 })
@@ -81,29 +77,19 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }
 
     // Get the team to check if the user being removed is the owner
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-    })
+    const { data: team, error: teamError } = await supabase.from("teams").select("owner_id").eq("id", teamId).single()
 
-    if (!team) {
+    if (teamError) {
+      console.error("Error fetching team:", teamError)
       return NextResponse.json({ error: "Team not found" }, { status: 404 })
     }
 
     // Cannot remove the team owner
-    if (team.ownerId === memberId) {
+    if (team.owner_id === memberId) {
       return NextResponse.json({ error: "Cannot remove the team owner" }, { status: 400 })
     }
 
-    // Remove the member
-    await prisma.teamMember.delete({
-      where: {
-        teamId_userId: {
-          teamId,
-          userId: memberId,
-        },
-      },
-    })
-
+    await removeTeamMember(teamId, memberId)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error removing team member:", error)
