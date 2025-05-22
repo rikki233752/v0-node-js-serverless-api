@@ -79,6 +79,15 @@ export async function getAccessToken(shop: string, code: string): Promise<string
  * Verifies that the shop parameter is a valid Shopify shop
  */
 export function isValidShop(shop: string): boolean {
+  // Clean the shop domain first
+  let cleanShop = shop.trim().toLowerCase()
+
+  // Remove protocol (http:// or https://)
+  cleanShop = cleanShop.replace(/^https?:\/\//, "")
+
+  // Remove trailing slash
+  cleanShop = cleanShop.replace(/\/$/, "")
+
   const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
-  return shopRegex.test(shop)
+  return shopRegex.test(cleanShop)
 }

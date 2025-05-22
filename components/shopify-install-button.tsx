@@ -42,6 +42,12 @@ export function ShopifyInstallButton({
     // Validate shop domain
     let formattedShop = shopDomain.trim().toLowerCase()
 
+    // Remove protocol (http:// or https://)
+    formattedShop = formattedShop.replace(/^https?:\/\//, "")
+
+    // Remove trailing slash
+    formattedShop = formattedShop.replace(/\/$/, "")
+
     // If empty, show error
     if (!formattedShop) {
       setError("Please enter your Shopify store domain")

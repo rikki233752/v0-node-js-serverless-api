@@ -14,15 +14,24 @@ export function getShopFromUrl(): string | null {
  * Validates a Shopify shop domain
  */
 export function isValidShopDomain(shop: string): boolean {
+  // Clean the shop domain first
+  const cleanShop = formatShopDomain(shop)
   const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
-  return shopRegex.test(shop)
+  return shopRegex.test(cleanShop)
 }
 
 /**
  * Formats a shop domain to ensure it has .myshopify.com
+ * and removes protocols and trailing slashes
  */
 export function formatShopDomain(shop: string): string {
   let formattedShop = shop.trim().toLowerCase()
+
+  // Remove protocol (http:// or https://)
+  formattedShop = formattedShop.replace(/^https?:\/\//, "")
+
+  // Remove trailing slash
+  formattedShop = formattedShop.replace(/\/$/, "")
 
   if (!formattedShop.includes(".myshopify.com")) {
     formattedShop = `${formattedShop}.myshopify.com`
