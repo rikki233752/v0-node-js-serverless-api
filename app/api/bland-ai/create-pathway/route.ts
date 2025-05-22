@@ -1,104 +1,61 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
+import { getUserFromRequest } from "@/lib/auth-utils"
+import { supabase } from "@/lib/supabase"
 
-export async function POST(request: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { apiKey, name, description } = await request.json()
+    // Get the authenticated user
+    const user = await getUserFromRequest(req)
 
-    if (!apiKey) {
-      return NextResponse.json({ status: "error", message: "API key is required" }, { status: 400 })
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { name, description, phoneNumberId, data } = await req.json()
+
+    // Validate required fields
     if (!name) {
-      return NextResponse.json({ status: "error", message: "Pathway name is required" }, { status: 400 })
+      return NextResponse.json({ error: "Pathway name is required" }, { status: 400 })
     }
 
-    // Log the request for debugging
-    console.log("Creating pathway:", { name, description })
+    // If phoneNumberId is provided, verify it belongs to the user
+    if (phoneNumberId) {
+      const { data: phoneNumber, error: phoneNumberError } = await supabase
+        .from("phone_numbers")
+        .select("id")
+        .eq("id", phoneNumberId)
+        .eq("user_id", user.id)
+        .single()
 
-    // Create a new pathway in Bland.ai - FIXED PAYLOAD
-    const response = await fetch("https://api.bland.ai/v1/pathway/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
+      if (phoneNumberError || !phoneNumber) {
+        return NextResponse.json({ error: "Phone number not found or not owned by you" }, { status: 403 })
+      }
+    }
+
+    // Create the pathway
+    const { data: pathway, error } = await supabase
+      .from("pathways")
+      .insert({
+        user_id: user.id,
         name,
-        description: description || `Created on ${new Date().toISOString()}`,
-        // Removed nodes and edges from initial creation
-      }),
-    })
+        description: description || "",
+        phone_number_id: phoneNumberId || null,
+        data: data || {},
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single()
 
-    // Check content type before trying to parse as JSON
-    const contentType = response.headers.get("content-type")
-
-    if (!contentType || !contentType.includes("application/json")) {
-      // Not JSON, get the raw text
-      const rawResponse = await response.text()
-      return NextResponse.json(
-        {
-          status: "error",
-          message: "Non-JSON response received from API",
-          responseStatus: response.status,
-          responseStatusText: response.statusText,
-          rawResponse: rawResponse.substring(0, 1000), // First 1000 chars for debugging
-          requestDetails: {
-            url: "https://api.bland.ai/v1/pathway/create",
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Bearer API_KEY_REDACTED",
-            },
-            body: JSON.stringify({
-              name,
-              description: description || `Created on ${new Date().toISOString()}`,
-            }),
-          },
-        },
-        { status: response.status },
-      )
+    if (error) {
+      console.error("Error creating pathway:", error)
+      return NextResponse.json({ error: "Failed to create pathway" }, { status: 500 })
     }
 
-    // Now it's safe to parse as JSON
-    const data = await response.json()
-
-    if (!response.ok) {
-      return NextResponse.json(
-        {
-          status: "error",
-          message: data.message || "Error creating pathway",
-          details: data,
-          requestDetails: {
-            url: "https://api.bland.ai/v1/pathway/create",
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: "Bearer API_KEY_REDACTED",
-            },
-            body: JSON.stringify({
-              name,
-              description: description || `Created on ${new Date().toISOString()}`,
-            }),
-          },
-        },
-        { status: response.status },
-      )
-    }
-
-    return NextResponse.json({
-      status: "success",
-      message: "Pathway created successfully",
-      data,
-    })
+    return NextResponse.json({ success: true, pathway })
   } catch (error) {
-    console.error("Error creating pathway:", error)
-    return NextResponse.json(
-      {
-        status: "error",
-        message: error instanceof Error ? error.message : "Unknown error occurred",
-        stack: error instanceof Error ? error.stack : undefined,
-      },
-      { status: 500 },
-    )
+    console.error("Error in create-pathway API:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

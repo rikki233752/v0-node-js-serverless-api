@@ -67,3 +67,33 @@ export async function getUserFromRequest(req: NextRequest) {
     return null
   }
 }
+
+// Add the missing getUserSession function
+export async function getUserSession() {
+  try {
+    const cookieStore = cookies()
+    const supabaseClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
+        },
+      },
+    )
+
+    const { data, error } = await supabaseClient.auth.getSession()
+
+    if (error) {
+      console.error("Error getting user session:", error)
+      return null
+    }
+
+    return data.session
+  } catch (error) {
+    console.error("Error in getUserSession:", error)
+    return null
+  }
+}
