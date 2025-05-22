@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -19,10 +20,12 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const { login, isLoading } = useAuth()
   const router = useRouter()
+  const [isUnconfirmedEmail, setIsUnconfirmedEmail] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setIsUnconfirmedEmail(false)
 
     if (!email) {
       setError("Email is required")
@@ -39,6 +42,10 @@ export default function LoginPage() {
     if (result.success) {
       router.push("/dashboard")
     } else {
+      // Check if the error is about unconfirmed email
+      if (result.message.includes("Email not confirmed") || result.message.includes("Email confirmation required")) {
+        setIsUnconfirmedEmail(true)
+      }
       setError(result.message)
     }
   }
@@ -47,11 +54,34 @@ export default function LoginPage() {
     router.push("/reset-password")
   }
 
+  const resendConfirmationEmail = async () => {
+    try {
+      setError("")
+
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+      })
+
+      if (error) {
+        setError(`Failed to resend confirmation email: ${error.message}`)
+        return
+      }
+
+      setError("")
+      setIsUnconfirmedEmail(false)
+      alert("Confirmation email has been resent. Please check your inbox.")
+    } catch (error) {
+      console.error("Error resending confirmation:", error)
+      setError("An unexpected error occurred. Please try again.")
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">Sign in to Bland.ai Flow Builder</CardTitle>
+          <CardTitle className="text-2xl font-bold">Log in</CardTitle>
           <CardDescription>Enter your email and password to access your dashboard</CardDescription>
         </CardHeader>
         <CardContent>
@@ -61,6 +91,12 @@ export default function LoginPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
+            )}
+
+            {isUnconfirmedEmail && (
+              <Button type="button" variant="outline" className="w-full mt-2" onClick={resendConfirmationEmail}>
+                Resend Confirmation Email
+              </Button>
             )}
 
             <div className="space-y-2">

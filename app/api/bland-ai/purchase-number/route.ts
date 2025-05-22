@@ -22,46 +22,14 @@ function formatToE164(input: string): string {
 
 export async function POST(request: Request) {
   try {
-    // Get the authenticated user
+    // Get the current authenticated user
     const user = await getUserFromRequest(request)
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { phoneNumber: number, location, type, monthlyFee } = await request.json()
-
-    // Validate required fields
-    if (!number) {
-      return NextResponse.json({ error: "Phone number is required" }, { status: 400 })
-    }
-
-    // Check if the number is already purchased by any user
-    const { data: existingNumber } = await supabase.from("phone_numbers").select("id").eq("number", number).single()
-
-    if (existingNumber) {
-      return NextResponse.json({ error: "This number is already purchased" }, { status: 400 })
-    }
-
-    // Insert the new phone number with the current user's ID
-    const { data: phoneNumberData, error } = await supabase
-      .from("phone_numbers")
-      .insert({
-        user_id: user.id,
-        number,
-        location: location || "",
-        type: type || "voice",
-        monthly_fee: monthlyFee || 0,
-        status: "active",
-        purchased_at: new Date().toISOString(),
-      })
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Error purchasing phone number:", error)
-      return NextResponse.json({ error: "Failed to purchase phone number" }, { status: 500 })
-    }
+    const { phoneNumber, country = "US" } = await request.json()
 
     // Get the API key from environment variables
     const apiKey = process.env.BLAND_AI_API_KEY
@@ -71,9 +39,9 @@ export async function POST(request: Request) {
     }
 
     // Format the phone number to E.164 format
-    const formattedNumber = formatToE164(number)
+    const formattedNumber = formatToE164(phoneNumber)
 
-    console.log(`Purchasing number: ${formattedNumber} for user: ${user.id}`)
+    console.log(`Purchasing number: ${formattedNumber} for country: ${country}`)
 
     // Call the Bland.ai API to purchase the number
     const response = await fetch("https://api.bland.ai/v1/inbound/purchase", {
@@ -84,7 +52,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         phone_number: formattedNumber,
-        country: location || "US",
+        country: country,
       }),
     })
 
@@ -105,9 +73,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: data.message || "Failed to purchase number" }, { status: response.status })
     }
 
-    return NextResponse.json({ success: true, phoneNumber: phoneNumberData })
+    // Store the purchased number in the database with the user_id
+    const { error: dbError } = await supabase.from("phone_numbers").insert({
+      user_id: user.id, // Associate with the current user
+      number: formattedNumber,
+      location: data.location || "Unknown",
+      type: "Voice",
+      status: "Active",
+      monthly_fee: data.price || 1.0,
+      purchased_at: new Date().toISOString(),
+    })
+
+    if (dbError) {
+      console.error("Error storing phone number in database:", dbError)
+      return NextResponse.json({ error: "Number purchased but failed to store in database" }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Phone number purchased successfully",
+      data: {
+        ...data,
+        user_id: user.id, // Include user_id in the response for debugging
+      },
+    })
   } catch (error) {
-    console.error("Error in purchase-number API:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error purchasing number:", error)
+    return NextResponse.json(
+      { error: `An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}` },
+      { status: 500 },
+    )
   }
 }

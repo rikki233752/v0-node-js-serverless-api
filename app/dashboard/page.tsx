@@ -8,9 +8,6 @@ import { BarChart3, Phone, PhoneCall, Plus, Users } from "lucide-react"
 import Link from "next/link"
 import { fetchCallSummary, fetchRecentCallFlows, type CallSummary } from "@/services/call-data-service"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { redirect } from "next/navigation"
-import { getUserSession } from "@/lib/auth-utils"
-import { supabase } from "@/lib/supabase"
 
 interface RecentCallFlow {
   id: string
@@ -18,18 +15,7 @@ interface RecentCallFlow {
   daysAgo: number
 }
 
-export default async function DashboardPage() {
-  // Get the current user session
-  const session = await getUserSession()
-
-  // Redirect to login if not authenticated
-  if (!session) {
-    redirect("/login")
-  }
-
-  // Get user data
-  const { data: userData } = await supabase.from("users").select("*").eq("id", session.user.id).single()
-
+export default function DashboardPage() {
   const { user } = useAuth()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -77,10 +63,10 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Welcome back, {userData?.name || session.user.email}!</h2>
+          <h2 className="text-2xl font-bold tracking-tight">Welcome back, {user?.name}!</h2>
           <p className="text-muted-foreground">Here's an overview of your AI call automation performance</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">

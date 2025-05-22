@@ -1,20 +1,19 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Phone, ArrowRight, Plus, AlertCircle } from "lucide-react"
-import { formatPhoneNumber } from "@/utils/phone-utils"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useAuth } from "@/contexts/auth-context"
+import type { PhoneNumber } from "@/lib/db-utils"
 
-export default function PathwayListingPage() {
+export default function PhoneNumberList() {
   const router = useRouter()
   const { user } = useAuth()
-  const [phoneNumbers, setPhoneNumbers] = useState<any[]>([])
+  const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -31,7 +30,7 @@ export default function PathwayListingPage() {
         setIsLoading(true)
 
         // Use the API endpoint that filters by user_id
-        const response = await fetch("/api/bland-ai/user-phone-numbers")
+        const response = await fetch("/api/phone-numbers")
 
         if (!response.ok) {
           throw new Error(`Error: ${response.status}`)
@@ -67,13 +66,11 @@ export default function PathwayListingPage() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between p-4 border-b">
-        <h1 className="text-2xl font-bold">My Pathways</h1>
-        <Link href="/dashboard/phone-numbers/purchase">
-          <Button className="flex items-center gap-2">
-            <Plus size={16} />
-            Purchase New Number
-          </Button>
-        </Link>
+        <h1 className="text-2xl font-bold">My Phone Numbers</h1>
+        <Button className="flex items-center gap-2" onClick={() => router.push("/dashboard/phone-numbers/purchase")}>
+          <Plus size={16} />
+          Purchase New Number
+        </Button>
       </div>
 
       <div className="flex-1 p-6 overflow-auto">
@@ -93,20 +90,16 @@ export default function PathwayListingPage() {
             <Phone className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No Phone Numbers Found</h3>
             <p className="text-muted-foreground mb-6">You need to purchase a phone number before creating a pathway.</p>
-            <Link href="/dashboard/phone-numbers/purchase">
-              <Button>Purchase a Number</Button>
-            </Link>
+            <Button onClick={() => router.push("/dashboard/phone-numbers/purchase")}>Purchase a Number</Button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {phoneNumbers.map((number) => (
-              <Card key={number.id || number.number}>
+              <Card key={number.id}>
                 <CardHeader>
                   <div className="flex justify-between items-start">
                     <div>
-                      <CardTitle className="text-xl">
-                        {formatPhoneNumber(number.number || number.phone_number)}
-                      </CardTitle>
+                      <CardTitle className="text-xl">{number.number}</CardTitle>
                       <CardDescription>
                         {number.location || "Unknown Location"} • {number.type || "Voice"}
                       </CardDescription>
@@ -131,7 +124,7 @@ export default function PathwayListingPage() {
                 <CardFooter>
                   <Button
                     className="w-full flex items-center justify-center gap-2"
-                    onClick={() => handleManagePathway(number.number || number.phone_number)}
+                    onClick={() => handleManagePathway(number.number)}
                   >
                     Manage Pathway
                     <ArrowRight size={16} />
