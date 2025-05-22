@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,6 +14,15 @@ export default function TestPixel() {
   const [checkResult, setCheckResult] = useState<any>(null)
   const [testResult, setTestResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Check if authenticated
+    const authHeader = sessionStorage.getItem("authHeader")
+    if (!authHeader) {
+      // Redirect to login if not authenticated
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+    }
+  }, [])
 
   const checkPixel = async () => {
     if (!pixelId) {

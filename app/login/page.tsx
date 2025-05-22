@@ -2,8 +2,8 @@
 
 import type React from "react"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,6 +16,35 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirect = searchParams.get("redirect") || "/admin/dashboard"
+
+  // Check if already logged in
+  useEffect(() => {
+    const checkAuth = async () => {
+      const authHeader = sessionStorage.getItem("authHeader")
+      if (authHeader) {
+        try {
+          const response = await fetch("/api/admin/pixels", {
+            headers: {
+              Authorization: authHeader,
+            },
+          })
+
+          if (response.ok) {
+            router.push(redirect)
+          } else {
+            // Clear invalid auth
+            sessionStorage.removeItem("authHeader")
+          }
+        } catch (err) {
+          console.error("Auth check failed:", err)
+        }
+      }
+    }
+
+    checkAuth()
+  }, [redirect, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,9 +55,6 @@ export default function LoginPage() {
       // Create basic auth header
       const authHeader = "Basic " + btoa(`${username}:${password}`)
 
-      // Store in session storage for future requests
-      sessionStorage.setItem("authHeader", authHeader)
-
       // Test the credentials with a request to the pixels API
       const response = await fetch("/api/admin/pixels", {
         headers: {
@@ -37,13 +63,14 @@ export default function LoginPage() {
       })
 
       if (response.ok) {
+        // Store auth header in session storage
+        sessionStorage.setItem("authHeader", authHeader)
+
         // Redirect to the requested page or dashboard
-        const urlParams = new URLSearchParams(window.location.search)
-        const redirect = urlParams.get("redirect") || "/admin/dashboard"
+        console.log("Login successful, redirecting to:", redirect)
         router.push(redirect)
       } else {
         setError("Invalid credentials. Please try again.")
-        sessionStorage.removeItem("authHeader")
       }
     } catch (err) {
       setError("An error occurred. Please try again.")

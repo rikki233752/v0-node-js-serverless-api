@@ -1,5 +1,6 @@
 "use client"
 
+// Add this near the top of the file, after "use client"
 import type React from "react"
 
 import { useState, useEffect } from "react"
@@ -62,6 +63,15 @@ export default function AdminDashboard() {
 
   // Active tab state
   const [activeTab, setActiveTab] = useState("pixels")
+
+  useEffect(() => {
+    // Check if authenticated
+    const authHeader = sessionStorage.getItem("authHeader")
+    if (!authHeader) {
+      // Redirect to login if not authenticated
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+    }
+  }, [])
 
   // Check for existing authentication on load
   useEffect(() => {

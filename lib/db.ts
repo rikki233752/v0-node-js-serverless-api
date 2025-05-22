@@ -33,13 +33,12 @@ export const prisma =
   globalForPrisma.prisma ||
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? prismaLogger : ["error"],
-    datasources: process.env.DATABASE_URL
-      ? {
-          db: {
-            url: process.env.DATABASE_URL,
-          },
-        }
-      : undefined, // Allow Prisma to use the connection string from schema.prisma if env var is missing
+    datasources: {
+      db: {
+        // Use the DATABASE_URL environment variable
+        url: process.env.DATABASE_URL,
+      },
+    },
   })
 
 // Add event listeners for better debugging
