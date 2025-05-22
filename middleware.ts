@@ -9,14 +9,14 @@ export const config = {
     /*
      * Match all paths except:
      * 1. /api/auth routes
-     * 2. /_next (Next.js internals)
-     * 3. /_static (inside /public)
-     * 4. /_vercel (Vercel internals)
-     * 5. All files in /public (e.g. favicon.ico)
-     * 6. The root path (/)
-     * 7. /debug routes
+     * 2. /api/debug-redirect route
+     * 3. /_next (Next.js internals)
+     * 4. /_static (inside /public)
+     * 5. /_vercel (Vercel internals)
+     * 6. All files in /public (e.g. favicon.ico)
+     * 7. The root path (/)
      */
-    "/((?!api/auth|_next|_static|_vercel|debug|[\\w-]+\\.\\w+|$).*)",
+    "/((?!api/auth|api/debug-redirect|_next|_static|_vercel|[\\w-]+\\.\\w+|$).*)",
   ],
 }
 

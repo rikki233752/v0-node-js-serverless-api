@@ -37,9 +37,24 @@ export function generateNonce(length = 32): string {
  */
 export function getAuthUrl(shop: string, nonce: string): string {
   const scopes = process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events"
-  const redirectUri = `${process.env.HOST}/api/auth/callback`
 
-  console.log("Using redirect URI:", redirectUri)
+  // Get the HOST environment variable
+  const host = process.env.HOST || ""
+
+  // Remove trailing slash if present
+  const cleanHost = host.endsWith("/") ? host.slice(0, -1) : host
+
+  // Build the redirect URI
+  const redirectUri = `${cleanHost}/api/auth/callback`
+
+  // Log the redirect URI for debugging
+  console.log({
+    message: "Building auth URL",
+    shop,
+    host: cleanHost,
+    redirectUri,
+    apiKey: process.env.SHOPIFY_API_KEY,
+  })
 
   const authUrl = new URL(`https://${shop}/admin/oauth/authorize`)
   authUrl.searchParams.append("client_id", process.env.SHOPIFY_API_KEY)
