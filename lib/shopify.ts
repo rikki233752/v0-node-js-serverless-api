@@ -36,8 +36,10 @@ export function generateNonce(length = 32): string {
  * Builds the OAuth authorization URL
  */
 export function getAuthUrl(shop: string, nonce: string): string {
-  const scopes = process.env.SHOPIFY_SCOPES || "read_products,write_products"
+  const scopes = process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events"
   const redirectUri = `${process.env.HOST}/api/auth/callback`
+
+  console.log("Using redirect URI:", redirectUri)
 
   const authUrl = new URL(`https://${shop}/admin/oauth/authorize`)
   authUrl.searchParams.append("client_id", process.env.SHOPIFY_API_KEY)
