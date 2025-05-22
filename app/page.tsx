@@ -2,6 +2,7 @@ import Link from "next/link"
 import { ShopifyInstallButton } from "@/components/shopify-install-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { AlertTriangle } from "lucide-react"
 
 export default function Home({
@@ -40,6 +41,18 @@ export default function Home({
               </AlertDescription>
             </Alert>
           )}
+
+          {/* Admin Dashboard Access */}
+          <div className="flex justify-center gap-4 mb-8">
+            <Link href={`/admin/dashboard${shop ? `?shop=${shop}` : ""}`}>
+              <Button className="bg-blue-600 hover:bg-blue-700">Admin Dashboard</Button>
+            </Link>
+            <Link href={`/test-pixel${shop ? `?shop=${shop}` : ""}`}>
+              <Button variant="outline" className="bg-gray-800 hover:bg-gray-700 text-white">
+                Test Pixel Tool
+              </Button>
+            </Link>
+          </div>
 
           {/* Install Button */}
           <div className="max-w-md mx-auto mt-8">
@@ -132,17 +145,22 @@ export default function Home({
           </div>
 
           <div className="mt-12 text-center">
-            <ShopifyInstallButton
-              apiKey={apiKey}
-              redirectUri={redirectUri}
-              scopes={scopes}
-              initialShop={shop}
-              buttonText="Install Now"
-              className="bg-blue-600 hover:bg-blue-700 text-lg py-3 px-8"
-              disabled={!isApiKeySet}
-            />
+            <div className="flex justify-center gap-4">
+              <Link href={`/admin/dashboard${shop ? `?shop=${shop}` : ""}`}>
+                <Button className="bg-blue-600 hover:bg-blue-700 text-lg py-3 px-8">Go to Admin Dashboard</Button>
+              </Link>
+              <ShopifyInstallButton
+                apiKey={apiKey}
+                redirectUri={redirectUri}
+                scopes={scopes}
+                initialShop={shop}
+                buttonText="Install Now"
+                className="bg-blue-600 hover:bg-blue-700 text-lg py-3 px-8"
+                disabled={!isApiKeySet}
+              />
+            </div>
             {!isApiKeySet && (
-              <p className="text-sm text-gray-300 mt-2">Installation is disabled until the API key is configured.</p>
+              <p className="text-sm text-gray-500 mt-2">Installation is disabled until the API key is configured.</p>
             )}
           </div>
         </div>
