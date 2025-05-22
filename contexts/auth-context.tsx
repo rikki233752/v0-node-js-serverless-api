@@ -22,13 +22,15 @@ interface AuthContextType {
   updateProfile: (data: Partial<User>) => Promise<{ success: boolean; message: string }>
   enableTwoFactor: () => Promise<{ success: boolean; message: string; setupData?: any }>
   verifyTwoFactor: (code: string) => Promise<{ success: boolean; message: string }>
+  isAuthenticated: boolean
 }
 
-interface SignupData {
+export interface SignupData {
   email: string
   password: string
   name: string
   company?: string
+  phoneNumber?: string
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -36,6 +38,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const isAuthenticated = !!user
 
   useEffect(() => {
     // Check for existing session
@@ -145,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = async (data: SignupData) => {
     try {
-      // Create auth user
+      // Create auth user WITHOUT email confirmation
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
@@ -153,7 +156,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data: {
             name: data.name,
             company: data.company,
+            phone_number: data.phoneNumber,
           },
+          // No email redirect needed since we're not confirming emails
         },
       })
 
@@ -172,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: data.name,
         company: data.company,
         role: "user", // Default role
+        phone_number: data.phoneNumber,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -183,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Create default user settings
       const { error: settingsError } = await supabase.from("user_settings").insert({
-        id: authData.user.id,
+        user_id: authData.user.id,
         plan_type: "free",
         max_pathways: 3,
         max_phone_numbers: 1,
@@ -196,6 +202,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (settingsError) {
         console.error("Error creating user settings:", settingsError)
         // Continue anyway since the auth user was created
+      }
+
+      // Automatically sign in the user after signup
+      if (authData.session === null) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        })
+
+        if (signInError) {
+          console.error("Error signing in after signup:", signInError)
+          // Continue anyway, user can manually sign in
+        }
       }
 
       return { success: true, message: "Account created successfully" }
@@ -305,6 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updateProfile,
         enableTwoFactor,
         verifyTwoFactor,
+        isAuthenticated,
       }}
     >
       {children}
