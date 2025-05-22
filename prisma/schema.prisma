@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  passwordHash  String
+  company       String?
+  role          String         @default("user")
+  phoneNumber   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  lastLogin     DateTime?
+  ownedTeams    Team[]         @relation("TeamOwner")
+  memberships   TeamMember[]
+  createdPaths  Pathway[]      @relation("PathwayCreator")
+  updatedPaths  Pathway[]      @relation("PathwayUpdater")
+}
+
+model Team {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  ownerId     String
+  owner       User         @relation("TeamOwner", fields: [ownerId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     TeamMember[]
+  pathways    Pathway[]
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  userId    String
+  role      String   @default("editor") // editor, viewer, admin
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Pathway {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  teamId      String?
+  team        Team?    @relation(fields: [teamId], references: [id])
+  creatorId   String
+  creator     User     @relation("PathwayCreator", fields: [creatorId], references: [id])
+  updaterId   String
+  updater     User     @relation("PathwayUpdater", fields: [updaterId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  data        Json
+  blandId     String?  @unique
+  activities  Activity[]
+}
+
+model Activity {
+  id          String   @id @default(uuid())
+  pathwayId   String
+  pathway     Pathway  @relation(fields: [pathwayId], references: [id], onDelete: Cascade)
+  userId      String
+  action      String   // created, updated, deployed, etc.
+  details     Json?
+  createdAt   DateTime @default(now())
+}
+
+model Invitation {
+  id        String   @id @default(uuid())
+  email     String
+  teamId    String
+  role      String   @default("editor")
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  accepted  Boolean  @default(false)
+}

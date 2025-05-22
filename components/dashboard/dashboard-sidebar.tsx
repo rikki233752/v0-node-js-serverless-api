@@ -15,6 +15,7 @@ import {
   Phone,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -24,8 +25,8 @@ const sidebarLinks = [
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Call History", href: "/dashboard/call-history", icon: PhoneCall },
   { name: "Phone Numbers", href: "/dashboard/phone-numbers", icon: Phone },
-  { name: "Team", href: "/dashboard/team", icon: Users },
-  { name: "Reports", href: "/dashboard/reports", icon: FileText },
+  { name: "Team", href: "/dashboard/teams", icon: Users },
+  { name: "Billing", href: "/dashboard/billing", icon: CreditCard },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ]
 

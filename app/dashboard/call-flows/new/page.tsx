@@ -1,150 +1,188 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Phone, PhoneCall, PhoneForwarded, PhoneOff } from "lucide-react"
-import Link from "next/link"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/components/ui/use-toast"
+import { ArrowLeft } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
 
-const flowTemplates = [
-  {
-    id: "lead-qualification",
-    name: "Lead Qualification",
-    description: "Qualify leads based on budget, timeline, and requirements",
-    icon: Phone,
-  },
-  {
-    id: "appointment-scheduling",
-    name: "Appointment Scheduling",
-    description: "Schedule appointments with qualified leads",
-    icon: PhoneCall,
-  },
-  {
-    id: "customer-feedback",
-    name: "Customer Feedback",
-    description: "Collect feedback from customers after service delivery",
-    icon: PhoneForwarded,
-  },
-  {
-    id: "blank",
-    name: "Blank Flow",
-    description: "Start from scratch with a blank call flow",
-    icon: PhoneOff,
-  },
-]
+interface Team {
+  id: string
+  name: string
+}
 
 export default function NewCallFlowPage() {
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
-  const [flowName, setFlowName] = useState("")
-  const [flowDescription, setFlowDescription] = useState("")
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [teamId, setTeamId] = useState<string | null>("personal") // Updated default value
+  const [teams, setTeams] = useState<Team[]>([])
+  const [loading, setLoading] = useState(false)
+  const [loadingTeams, setLoadingTeams] = useState(true)
   const router = useRouter()
+  const { toast } = useToast()
+  const { user } = useAuth()
+  const searchParams = useSearchParams()
 
-  const handleCreateFlow = () => {
-    // In a real app, this would create the flow in the database
-    // For now, we'll just redirect to the call flows page
-    router.push("/dashboard/call-flows")
+  useEffect(() => {
+    // Check if teamId is provided in the URL
+    const urlTeamId = searchParams.get("teamId")
+    if (urlTeamId) {
+      setTeamId(urlTeamId)
+    }
+
+    fetchTeams()
+  }, [searchParams])
+
+  const fetchTeams = async () => {
+    try {
+      setLoadingTeams(true)
+      const response = await fetch("/api/teams")
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch teams")
+      }
+
+      const data = await response.json()
+      setTeams(data.teams)
+    } catch (error) {
+      console.error("Error fetching teams:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load teams. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoadingTeams(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!name.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a name for your call flow.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      // Create a new pathway
+      const response = await fetch("/api/pathways", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          description,
+          teamId: teamId || undefined,
+          data: {}, // Empty data for now, will be populated in the editor
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to create pathway")
+      }
+
+      const data = await response.json()
+
+      toast({
+        title: "Success",
+        description: "Call flow created successfully.",
+      })
+
+      // Redirect to the editor with the new pathway ID
+      router.push(`/dashboard/call-flows/editor?id=${data.pathway.id}`)
+    } catch (error) {
+      console.error("Error creating call flow:", error)
+      toast({
+        title: "Error",
+        description: "Failed to create call flow. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Link href="/dashboard/call-flows">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <h2 className="text-2xl font-bold tracking-tight">Create New Call Flow</h2>
+    <div className="container mx-auto py-8">
+      <div className="flex items-center mb-6">
+        <Button variant="outline" size="sm" onClick={() => router.back()} className="mr-4">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
+        <h1 className="text-3xl font-bold">Create New Call Flow</h1>
       </div>
 
-      {!selectedTemplate ? (
-        <>
-          <p className="text-muted-foreground">Choose a template to get started or create a blank flow</p>
-
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {flowTemplates.map((template) => (
-              <Card
-                key={template.id}
-                className={`cursor-pointer transition-all hover:border-primary hover:shadow-md`}
-                onClick={() => setSelectedTemplate(template.id)}
-              >
-                <CardHeader>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                    <template.icon className="h-6 w-6 text-primary" />
-                  </div>
-                  <CardTitle className="mt-2">{template.name}</CardTitle>
-                  <CardDescription>{template.description}</CardDescription>
-                </CardHeader>
-                <CardFooter>
-                  <Button variant="outline" className="w-full">
-                    Select Template
-                  </Button>
-                </CardFooter>
-              </Card>
-            ))}
+      <div className="max-w-2xl mx-auto">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter a name for your call flow"
+              required
+            />
           </div>
-        </>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Flow Details</CardTitle>
-            <CardDescription>Provide basic information about your call flow</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Flow Name</Label>
-              <Input
-                id="name"
-                placeholder="e.g., Lead Qualification Flow"
-                value={flowName}
-                onChange={(e) => setFlowName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                placeholder="Describe what this call flow does..."
-                rows={3}
-                value={flowDescription}
-                onChange={(e) => setFlowDescription(e.target.value)}
-              />
-            </div>
-            <div className="rounded-md bg-blue-50 p-4">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  {(() => {
-                    const IconComponent = flowTemplates.find((t) => t.id === selectedTemplate)?.icon
-                    return IconComponent ? <IconComponent className="h-5 w-5 text-blue-400" /> : null
-                  })()}
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-blue-800">
-                    {flowTemplates.find((t) => t.id === selectedTemplate)?.name} Template Selected
-                  </h3>
-                  <div className="mt-2 text-sm text-blue-700">
-                    <p>
-                      You can customize this template after creation. The template provides a starting point with
-                      predefined nodes and flows.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => setSelectedTemplate(null)}>
-              Back to Templates
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (Optional)</Label>
+            <Textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the purpose of this call flow"
+              rows={3}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="team">Team (Optional)</Label>
+            <Select value={teamId || ""} onValueChange={(value) => setTeamId(value || null)}>
+              <SelectTrigger id="team" disabled={loadingTeams}>
+                <SelectValue placeholder={loadingTeams ? "Loading teams..." : "Select a team"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personal">Personal (No Team)</SelectItem> {/* Updated value prop */}
+                {teams.map((team) => (
+                  <SelectItem key={team.id} value={team.id}>
+                    {team.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-gray-500 mt-1">
+              {teamId === "personal"
+                ? "This call flow will be private to you."
+                : "This call flow will be shared with your team members."}
+            </p>
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => router.back()} disabled={loading}>
+              Cancel
             </Button>
-            <Button onClick={handleCreateFlow} disabled={!flowName.trim()}>
-              Create Flow
+            <Button type="submit" disabled={loading}>
+              {loading ? "Creating..." : "Create Call Flow"}
             </Button>
-          </CardFooter>
-        </Card>
-      )}
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
