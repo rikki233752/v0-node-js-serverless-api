@@ -1,0 +1,26 @@
+# This file contains the configuration for your Shopify app.
+
+name = "Your App Name"
+client_id = "your-client-id"
+application_url = "https://your-app-url.com"
+embedded = true
+
+access_scopes = [
+  "write_pixels",
+  "read_customer_events"
+]
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = "your-dev-store.myshopify.com"
+
+[auth]
+redirect_urls = [
+  "https://your-app-url.com/auth/callback"
+]
+
+[webhooks]
+api_version = "2023-10"
+
+[pos]
+embedded = false

@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npx prisma generate && next build",
+  "installCommand": "npx npm@6 install",
+  "framework": "nextjs"
+}

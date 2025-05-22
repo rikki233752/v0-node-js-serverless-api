@@ -1,186 +1,127 @@
-import { supabase } from "./supabase"
+import { PrismaClient } from "@prisma/client"
 
-// Test database connection
-export async function testDatabaseConnection() {
-  try {
-    const { data, error } = await supabase.from("users").select("count").limit(1)
+// Define a custom logger for Prisma
+const prismaLogger = [
+  {
+    emit: "event",
+    level: "query",
+  },
+  {
+    emit: "event",
+    level: "error",
+  },
+  {
+    emit: "stdout",
+    level: "error",
+  },
+  {
+    emit: "stdout",
+    level: "info",
+  },
+  {
+    emit: "stdout",
+    level: "warn",
+  },
+]
 
-    if (error) {
-      console.error("Database connection error:", error)
-      return false
-    }
+// PrismaClient is attached to the `global` object in development to prevent
+// exhausting your database connection limit.
+const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
-    return true
-  } catch (error) {
-    console.error("Database connection test failed:", error)
-    return false
-  }
-}
-
-// User functions
-export async function getUserById(id: string) {
-  const { data, error } = await supabase.from("users").select("*").eq("id", id).single()
-
-  if (error) {
-    console.error("Error fetching user:", error)
-    return null
-  }
-
-  return data
-}
-
-// Team functions
-export async function getTeamsByUserId(userId: string) {
-  // Get teams where user is owner
-  const { data: ownedTeams, error: ownedError } = await supabase
-    .from("teams")
-    .select(`
-      *,
-      owner:users!teams_owner_id_fkey(id, name, email),
-      members:team_members(
-        id, role,
-        user:users(id, name, email)
-      )
-    `)
-    .eq("owner_id", userId)
-
-  if (ownedError) {
-    console.error("Error fetching owned teams:", ownedError)
-    return []
-  }
-
-  // Get teams where user is a member
-  const { data: memberTeams, error: memberError } = await supabase
-    .from("team_members")
-    .select(`
-      teams(
-        *,
-        owner:users!teams_owner_id_fkey(id, name, email),
-        members:team_members(
-          id, role,
-          user:users(id, name, email)
-        )
-      )
-    `)
-    .eq("user_id", userId)
-
-  if (memberError) {
-    console.error("Error fetching member teams:", memberError)
-    return ownedTeams || []
-  }
-
-  // Combine and deduplicate teams
-  const memberTeamsData = memberTeams?.map((item) => item.teams) || []
-  const allTeams = [...(ownedTeams || []), ...(memberTeamsData || [])]
-
-  // Remove duplicates by team ID
-  const uniqueTeams = allTeams.filter((team, index, self) => index === self.findIndex((t) => t.id === team.id))
-
-  return uniqueTeams
-}
-
-// Pathway functions
-export async function getPathwaysByUserId(userId: string) {
-  // Get pathways created by user
-  const { data: ownedPathways, error: ownedError } = await supabase
-    .from("pathways")
-    .select(`
-      *,
-      team:teams(*),
-      creator:users!pathways_creator_id_fkey(id, name),
-      updater:users!pathways_updater_id_fkey(id, name)
-    `)
-    .eq("creator_id", userId)
-
-  if (ownedError) {
-    console.error("Error fetching owned pathways:", ownedError)
-    return []
-  }
-
-  // Get pathways from teams user belongs to
-  const { data: teamIds, error: teamError } = await supabase
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", userId)
-
-  if (teamError) {
-    console.error("Error fetching team IDs:", teamError)
-    return ownedPathways || []
-  }
-
-  if (!teamIds || teamIds.length === 0) {
-    return ownedPathways || []
-  }
-
-  const teamIdArray = teamIds.map((item) => item.team_id)
-
-  const { data: teamPathways, error: pathwayError } = await supabase
-    .from("pathways")
-    .select(`
-      *,
-      team:teams(*),
-      creator:users!pathways_creator_id_fkey(id, name),
-      updater:users!pathways_updater_id_fkey(id, name)
-    `)
-    .in("team_id", teamIdArray)
-
-  if (pathwayError) {
-    console.error("Error fetching team pathways:", pathwayError)
-    return ownedPathways || []
-  }
-
-  // Combine and deduplicate pathways
-  const allPathways = [...(ownedPathways || []), ...(teamPathways || [])]
-
-  // Remove duplicates by pathway ID
-  const uniquePathways = allPathways.filter(
-    (pathway, index, self) => index === self.findIndex((p) => p.id === pathway.id),
-  )
-
-  return uniquePathways
-}
-
-// Activity logging
-export async function logActivity(pathwayId: string, userId: string, action: string, details?: any) {
-  const { error } = await supabase.from("activities").insert({
-    pathway_id: pathwayId,
-    user_id: userId,
-    action,
-    details: details || null,
-    created_at: new Date().toISOString(),
+// Create a new PrismaClient instance with connection retry logic
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? prismaLogger : ["error"],
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL,
+      },
+    },
   })
 
-  if (error) {
-    console.error("Error logging activity:", error)
+// Add event listeners for better debugging
+if (process.env.NODE_ENV === "development") {
+  prisma.$on("query", (e) => {
+    console.log("Query: " + e.query)
+    console.log("Duration: " + e.duration + "ms")
+  })
+
+  prisma.$on("error", (e) => {
+    console.error("Prisma Error:", e)
+  })
+}
+
+// Prevent multiple instances of Prisma Client in development
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
+
+// Connection function with retry logic
+export async function connectToDatabase(retries = 3, delay = 1000) {
+  let currentTry = 0
+
+  while (currentTry < retries) {
+    try {
+      // Test the connection
+      await prisma.$connect()
+      console.log("Successfully connected to the database")
+      return { success: true, prisma }
+    } catch (error) {
+      currentTry++
+      console.error(`Database connection attempt ${currentTry}/${retries} failed:`, error)
+
+      if (currentTry >= retries) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown database connection error",
+          prisma: null,
+        }
+      }
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      // Increase delay for next retry (exponential backoff)
+      delay *= 2
+    }
+  }
+
+  return {
+    success: false,
+    error: "Maximum connection retries exceeded",
+    prisma: null,
   }
 }
 
-// Permission checking
-export async function checkTeamPermission(teamId: string, userId: string, allowedRoles: string[]): Promise<boolean> {
-  // Check if user is team owner
-  const { data: team, error: teamError } = await supabase.from("teams").select("owner_id").eq("id", teamId).single()
+// Helper function to safely execute database operations
+export async function executeWithRetry<T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  let currentTry = 0
+  let lastError: any
 
-  if (teamError) {
-    console.error("Error checking team ownership:", teamError)
-    return false
+  while (currentTry < retries) {
+    try {
+      return await operation()
+    } catch (error: any) {
+      currentTry++
+      lastError = error
+      console.error(`Database operation attempt ${currentTry}/${retries} failed:`, error)
+
+      // Check if this is a connection error that we should retry
+      const isConnectionError =
+        error.message.includes("Connection") ||
+        error.message.includes("timeout") ||
+        error.message.includes("closed") ||
+        error.code === "P1001" ||
+        error.code === "P1002"
+
+      if (currentTry >= retries || !isConnectionError) {
+        throw error
+      }
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      // Increase delay for next retry (exponential backoff)
+      delay *= 2
+    }
   }
 
-  if (team.owner_id === userId) {
-    return true // Team owner has all permissions
-  }
-
-  // Check if user is a member with allowed role
-  const { data: membership, error: memberError } = await supabase
-    .from("team_members")
-    .select("role")
-    .eq("team_id", teamId)
-    .eq("user_id", userId)
-    .single()
-
-  if (memberError) {
-    console.error("Error checking team membership:", memberError)
-    return false
-  }
-
-  return membership && allowedRoles.includes(membership.role)
+  throw lastError
 }
