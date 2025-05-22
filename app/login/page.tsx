@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
@@ -17,8 +17,26 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
-  const { login, isLoading } = useAuth()
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const { login, loading: isLoading } = useAuth()
   const router = useRouter()
+
+  // Check if we're in a browser environment
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // Check for Supabase URL and key
+      const hasSupabaseUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL
+      const hasSupabaseKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+      setDebugInfo({
+        hasSupabaseUrl,
+        hasSupabaseKey,
+        url: process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 10) + "...",
+        userAgent: navigator.userAgent,
+        cookiesEnabled: navigator.cookieEnabled,
+      })
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,12 +52,21 @@ export default function LoginPage() {
       return
     }
 
-    const result = await login(email, password)
+    try {
+      console.log("Attempting login...")
+      const result = await login(email, password)
+      console.log("Login result:", result)
 
-    if (result.success) {
-      router.push("/dashboard")
-    } else {
-      setError(result.message)
+      if (result.success) {
+        console.log("Login successful, redirecting...")
+        router.push("/dashboard")
+      } else {
+        console.error("Login failed:", result.message)
+        setError(result.message)
+      }
+    } catch (err: any) {
+      console.error("Login error:", err)
+      setError(`An error occurred: ${err.message || "Unknown error"}`)
     }
   }
 
@@ -92,7 +119,28 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
+
+            {/* Debug button - only in development */}
+            {process.env.NODE_ENV === "development" && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full mt-2"
+                onClick={() => console.log("Debug info:", { email, debugInfo })}
+              >
+                Debug Info
+              </Button>
+            )}
           </form>
+
+          {/* Show debug info in development */}
+          {process.env.NODE_ENV === "development" && debugInfo && (
+            <div className="mt-4 p-2 bg-gray-100 rounded text-xs">
+              <p>Supabase URL: {debugInfo.hasSupabaseUrl ? "Set" : "Missing"}</p>
+              <p>Supabase Key: {debugInfo.hasSupabaseKey ? "Set" : "Missing"}</p>
+              <p>Cookies: {debugInfo.cookiesEnabled ? "Enabled" : "Disabled"}</p>
+            </div>
+          )}
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
           <div className="text-sm text-center text-gray-500">

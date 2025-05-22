@@ -44,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check for existing session
     const checkSession = async () => {
       try {
+        console.log("Checking session...")
         const { data, error } = await supabase.auth.getSession()
 
         if (error) {
@@ -52,6 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
           return
         }
+
+        console.log("Session data:", data.session ? "Session exists" : "No session")
 
         if (data.session) {
           // Get user profile from database
@@ -70,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               name: data.session.user.user_metadata?.name,
             })
           } else {
+            console.log("User profile loaded")
             setUser(userData)
           }
         } else {
@@ -87,6 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Set up auth state change listener
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event)
+
       if (event === "SIGNED_IN" && session) {
         // Get user profile from database
         const { data: userData, error: userError } = await supabase
@@ -118,36 +124,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
+      console.log("Login attempt for:", email)
+      setLoading(true)
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
+        console.error("Supabase login error:", error)
         return { success: false, message: error.message }
       }
 
-      // Log login activity
-      await supabase.from("user_login_activity").insert({
-        user_id: data.user.id,
-        login_timestamp: new Date().toISOString(),
-        success: true,
-        ip_address: "client-side", // We can't get IP on client side
-        user_agent: navigator.userAgent,
-      })
+      if (!data.user) {
+        console.error("No user returned from login")
+        return { success: false, message: "Login failed. Please try again." }
+      }
 
-      // Update last login time
-      await supabase.from("users").update({ last_login: new Date().toISOString() }).eq("id", data.user.id)
+      console.log("Login successful for user:", data.user.id)
+
+      try {
+        // Log login activity
+        await supabase.from("user_login_activity").insert({
+          user_id: data.user.id,
+          login_timestamp: new Date().toISOString(),
+          success: true,
+          ip_address: "client-side", // We can't get IP on client side
+          user_agent: navigator.userAgent,
+        })
+
+        // Update last login time
+        await supabase.from("users").update({ last_login: new Date().toISOString() }).eq("id", data.user.id)
+      } catch (logError) {
+        // Don't fail login if logging fails
+        console.error("Error logging login activity:", logError)
+      }
 
       return { success: true, message: "Login successful" }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login error:", error)
-      return { success: false, message: "An unexpected error occurred" }
+      return { success: false, message: error.message || "An unexpected error occurred" }
+    } finally {
+      setLoading(false)
     }
   }
 
   const signup = async (data: SignupData) => {
     try {
+      setLoading(true)
       // Create auth user WITHOUT email confirmation
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
@@ -218,15 +243,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: true, message: "Account created successfully" }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Signup error:", error)
-      return { success: false, message: "An unexpected error occurred" }
+      return { success: false, message: error.message || "An unexpected error occurred" }
+    } finally {
+      setLoading(false)
     }
   }
 
   const logout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
+    try {
+      await supabase.auth.signOut()
+      setUser(null)
+    } catch (error) {
+      console.error("Logout error:", error)
+    }
   }
 
   const updateProfile = async (data: Partial<User>) => {
@@ -252,9 +283,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser((prev) => (prev ? { ...prev, ...data } : null))
 
       return { success: true, message: "Profile updated successfully" }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Update profile error:", error)
-      return { success: false, message: "An unexpected error occurred" }
+      return { success: false, message: error.message || "An unexpected error occurred" }
     }
   }
 
@@ -272,9 +303,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: true, message: "Two-factor authentication setup ready", setupData }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Enable 2FA error:", error)
-      return { success: false, message: "An unexpected error occurred" }
+      return { success: false, message: error.message || "An unexpected error occurred" }
     }
   }
 
@@ -307,9 +338,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser((prev) => (prev ? { ...prev, twoFactorEnabled: true } : null))
 
       return { success: true, message: "Two-factor authentication enabled successfully" }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Verify 2FA error:", error)
-      return { success: false, message: "An unexpected error occurred" }
+      return { success: false, message: error.message || "An unexpected error occurred" }
     }
   }
 
