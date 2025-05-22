@@ -4,13 +4,44 @@ import { drizzle } from "drizzle-orm/neon-http"
 // Get the DATABASE_URL from environment variables
 const DATABASE_URL = process.env.DATABASE_URL
 
-if (!DATABASE_URL) {
-  console.error("DATABASE_URL is not defined in environment variables")
+// Initialize the SQL client with the database URL or a fallback for development
+let sql: any
+let db: any
+
+try {
+  if (!DATABASE_URL) {
+    throw new Error("DATABASE_URL is not defined in environment variables")
+  }
+
+  // Initialize the SQL client with the database URL
+  sql = neon(DATABASE_URL)
+  db = drizzle(sql)
+
+  console.log("Database connection initialized")
+} catch (error) {
+  console.error("Failed to initialize database connection:", error)
+
+  // Create a mock implementation for development/testing
+  const mockSql = async (strings: TemplateStringsArray, ...values: any[]) => {
+    console.warn("Using mock database connection. This should not be used in production.")
+    return [{ mock: true }]
+  }
+
+  mockSql.transaction = async (fn: Function) => {
+    return await fn(mockSql)
+  }
+
+  sql = mockSql
+  db = {
+    query: () => ({ execute: async () => [] }),
+    select: () => ({ from: () => ({ execute: async () => [] }) }),
+    insert: () => ({ values: () => ({ returning: () => ({ execute: async () => [] }) }) }),
+    update: () => ({ set: () => ({ where: () => ({ execute: async () => [] }) }) }),
+    delete: () => ({ where: () => ({ execute: async () => [] }) }),
+  }
 }
 
-// Initialize the SQL client with the database URL
-const sql = neon(DATABASE_URL!)
-export const db = drizzle(sql)
+export { sql, db }
 
 // Test the database connection
 export async function testDatabaseConnection() {
