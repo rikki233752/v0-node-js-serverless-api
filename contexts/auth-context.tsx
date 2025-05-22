@@ -4,10 +4,10 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 import { useRouter } from "next/navigation"
 
 export type User = {
-  id: string | number
+  id: string
   name: string
   email: string
-  company?: string
+  company: string
   role: string
   phoneNumber?: string
   preferences?: Record<string, any>
@@ -35,38 +35,8 @@ export interface SignupData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-// Mock storage for development
+// For demo purposes - would be replaced with actual API calls
 const MOCK_USERS_KEY = "bland-mock-users"
-const CURRENT_USER_KEY = "bland-current-user"
-
-// Initialize with a default admin user if no users exist
-const initializeMockUsers = () => {
-  const existingUsers = localStorage.getItem(MOCK_USERS_KEY)
-  if (!existingUsers) {
-    const defaultUsers = {
-      "admin@example.com": {
-        id: "user_admin",
-        name: "Admin User",
-        email: "admin@example.com",
-        password: "password123", // In a real app, this would be hashed
-        company: "Bland.ai",
-        role: "admin",
-        lastLogin: new Date().toISOString(),
-      },
-      "user@example.com": {
-        id: "user_demo",
-        name: "Demo User",
-        email: "user@example.com",
-        password: "password123", // In a real app, this would be hashed
-        company: "Demo Company",
-        role: "user",
-        lastLogin: new Date().toISOString(),
-      },
-    }
-    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(defaultUsers))
-    console.log("Initialized default users")
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -74,44 +44,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
   const isAuthenticated = !!user
 
-  // Initialize mock users and load user on mount
+  // Load user on mount
   useEffect(() => {
-    // Initialize mock users
-    if (typeof window !== "undefined") {
-      initializeMockUsers()
-
-      // Check for stored user
-      const storedUser = localStorage.getItem(CURRENT_USER_KEY)
-      if (storedUser) {
-        try {
-          setUser(JSON.parse(storedUser))
-        } catch (error) {
-          console.error("Failed to parse stored user:", error)
-          localStorage.removeItem(CURRENT_USER_KEY)
-        }
+    const storedUser = localStorage.getItem("bland-user")
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser))
+      } catch (error) {
+        console.error("Failed to parse stored user:", error)
+        localStorage.removeItem("bland-user")
       }
-      setIsLoading(false)
     }
+    setIsLoading(false)
   }, [])
 
   // Mock user storage - in a real app, this would be handled by a backend
   const getMockUsers = (): Record<string, User & { password: string }> => {
-    if (typeof window === "undefined") return {}
-
     const users = localStorage.getItem(MOCK_USERS_KEY)
     return users ? JSON.parse(users) : {}
   }
 
   const saveMockUsers = (users: Record<string, User & { password: string }>) => {
-    if (typeof window === "undefined") return
-
     localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users))
   }
 
   const signup = async (userData: SignupData): Promise<{ success: boolean; message: string }> => {
     setIsLoading(true)
     try {
-      // For development, use local storage instead of API
+      // Simulate API delay
+      await new Promise((resolve) => setTimeout(resolve, 800))
+
       const users = getMockUsers()
 
       // Check if email already exists
@@ -119,13 +81,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, message: "Email already in use" }
       }
 
+      // Validate password strength
+      if (userData.password.length < 8) {
+        return { success: false, message: "Password must be at least 8 characters long" }
+      }
+
       // Create new user
       const newUser: User & { password: string } = {
         id: `user_${Date.now()}`,
         name: userData.name,
         email: userData.email,
-        company: userData.company || "",
-        role: "user",
+        company: userData.company || userData.email.split("@")[1].split(".")[0],
+        role: "User",
         password: userData.password, // In a real app, this would be hashed
         phoneNumber: userData.phoneNumber,
         lastLogin: new Date().toISOString(),
@@ -137,9 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Set the user as logged in immediately after signup
       const sessionUser = { ...newUser }
-      delete (sessionUser as any).password // Remove password from session data
+      delete sessionUser.password // Remove password from session data
       setUser(sessionUser)
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(sessionUser))
+      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
 
       return {
         success: true,
@@ -156,17 +123,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<{ success: boolean; message: string }> => {
     setIsLoading(true)
     try {
-      console.log("Attempting login with:", email, password)
+      // Simulate API delay
+      await new Promise((resolve) => setTimeout(resolve, 800))
 
-      // For development, use local storage instead of API
       const users = getMockUsers()
-      console.log("Available users:", Object.keys(users))
-
       const user = users[email]
 
       // Check if user exists and password matches
       if (!user || user.password !== password) {
-        console.log("Login failed: Invalid credentials")
         return { success: false, message: "Invalid email or password" }
       }
 
@@ -177,12 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Create session
       const sessionUser = { ...user }
-      delete (sessionUser as any).password // Remove password from session data
+      delete sessionUser.password // Remove password from session data
 
       setUser(sessionUser)
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(sessionUser))
+      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
 
-      console.log("Login successful for:", email)
       return { success: true, message: "Login successful" }
     } catch (error) {
       console.error("Login error:", error)
@@ -194,13 +157,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null)
-    localStorage.removeItem(CURRENT_USER_KEY)
+    localStorage.removeItem("bland-user")
+    localStorage.removeItem("bland-api-key") // Also clear API key on logout
     router.push("/login")
   }
 
   const resetPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
     try {
-      // For security, don't reveal if email exists or not
+      // Simulate API delay
+      await new Promise((resolve) => setTimeout(resolve, 800))
+
+      const users = getMockUsers()
+
+      // Check if user exists
+      if (!users[email]) {
+        // For security, don't reveal if email exists or not
+        return {
+          success: true,
+          message: "If your email is registered, you will receive password reset instructions.",
+        }
+      }
+
+      // In a real app, we would send a password reset email here
+      // For demo, we'll simulate it was sent
+
       return {
         success: true,
         message: "If your email is registered, you will receive password reset instructions.",
@@ -217,6 +197,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
+      // Simulate API delay
+      await new Promise((resolve) => setTimeout(resolve, 800))
+
       const users = getMockUsers()
       const currentUser = users[user.email]
 
@@ -231,10 +214,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Update session
       const sessionUser = { ...updatedUser }
-      delete (sessionUser as any).password
+      delete sessionUser.password
 
       setUser(sessionUser)
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(sessionUser))
+      localStorage.setItem("bland-user", JSON.stringify(sessionUser))
 
       return { success: true, message: "Profile updated successfully" }
     } catch (error) {

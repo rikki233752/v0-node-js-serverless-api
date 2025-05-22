@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -33,17 +34,12 @@ export default function LoginPage() {
       return
     }
 
-    try {
-      const result = await login(email, password)
+    const result = await login(email, password)
 
-      if (result.success) {
-        router.push("/dashboard")
-      } else {
-        setError(result.message)
-      }
-    } catch (err) {
-      console.error("Login error:", err)
-      setError("An unexpected error occurred. Please try again.")
+    if (result.success) {
+      router.push("/dashboard")
+    } else {
+      setError(result.message)
     }
   }
 
