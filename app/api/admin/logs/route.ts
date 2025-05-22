@@ -22,10 +22,15 @@ async function authenticate(request: Request) {
 // GET: Retrieve event logs
 export async function GET(request: Request) {
   try {
-    // Authenticate request
-    const isAuthenticated = await authenticate(request)
-    if (!isAuthenticated) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    // Check if DATABASE_URL is available
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database connection not configured. Please set the DATABASE_URL environment variable.",
+        },
+        { status: 500 },
+      )
     }
 
     const { searchParams } = new URL(request.url)
