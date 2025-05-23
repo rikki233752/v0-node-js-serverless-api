@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,9 @@ export default function ShopifyDebug() {
   const [testResult, setTestResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Get the current hostname for default gateway URL
-  useState(() => {
+  // Move window access to useEffect to avoid SSR issues
+  useEffect(() => {
+    // Get the current hostname for default gateway URL
     const host = window.location.hostname
     const protocol = window.location.protocol
     if (host.includes("localhost")) {
@@ -25,7 +26,7 @@ export default function ShopifyDebug() {
     } else {
       setGatewayUrl(`${protocol}//${host}/api/track`)
     }
-  })
+  }, [])
 
   const testShopifyConnection = async () => {
     if (!shopDomain || !pixelId) {
