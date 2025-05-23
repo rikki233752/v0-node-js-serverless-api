@@ -26,7 +26,7 @@ export default function LiveTest() {
     setTestResult(null)
 
     try {
-      // Send a test event
+      // Send a more complete test event
       const response = await fetch("/api/track", {
         method: "POST",
         headers: {
@@ -34,18 +34,26 @@ export default function LiveTest() {
         },
         body: JSON.stringify({
           pixelId: pixelId,
-          event_name: "LiveTest",
+          event_name: "Purchase", // Use a standard event name
           event_time: Math.floor(Date.now() / 1000),
+          event_source_url: window.location.href,
           user_data: {
             client_user_agent: navigator.userAgent,
+            client_ip_address: "127.0.0.1", // This will be replaced by server
             em: "test@example.com", // This will be hashed
+            ph: "1234567890", // This will be hashed
           },
           custom_data: {
-            test_type: "live_test",
-            timestamp: new Date().toISOString(),
-            value: 99.99,
             currency: "USD",
+            value: 99.99,
+            content_type: "product",
+            content_ids: ["test-product-123"],
+            content_name: "Test Product",
+            num_items: 1,
+            order_id: `test-order-${Date.now()}`,
           },
+          // Remove test_event_code to send as live event
+          // test_event_code: "TEST12345",
         }),
       })
 

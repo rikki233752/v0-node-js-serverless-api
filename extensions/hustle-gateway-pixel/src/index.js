@@ -67,6 +67,10 @@ register(({ configuration, analytics, browser }) => {
       // Send using image beacon to avoid CORS issues
       const img = new Image()
       img.src = `${gatewayUrl}?d=${encodeURIComponent(JSON.stringify(eventData))}&t=${new Date().getTime()}`
+
+      // Add debug logging for successful image creation
+      img.onload = () => log(`Successfully loaded image for ${eventName} event`)
+      img.onerror = (e) => log(`Error loading image for ${eventName} event`, e)
     } catch (e) {
       log("Error sending event", e)
     }

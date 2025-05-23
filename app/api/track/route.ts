@@ -4,14 +4,16 @@ import axios from "axios"
 import { getAccessToken } from "@/lib/pixel-tokens"
 import { logEvent } from "@/lib/event-logger"
 import { prisma, executeWithRetry } from "@/lib/db"
+import { logShopifyEvent } from "@/lib/shopify-event-logger"
 
 const gifPixel = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64")
 
 // Ensure the CORS headers are properly set in both GET and POST handlers
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": "*", // Allow all origins
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent",
+  "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent, Origin, Referer",
+  "Access-Control-Max-Age": "86400", // 24 hours
 }
 
 // Default domain for event_source_url if not provided
@@ -390,6 +392,23 @@ export async function GET(request: Request) {
           Expires: "0",
         },
       })
+    }
+
+    // Check if this is a Shopify event
+    const isShopifyEvent =
+      data.custom_data?.test_source?.includes("shopify") ||
+      data.custom_data?.shop_domain ||
+      (user_data.referer && user_data.referer.includes("myshopify.com"))
+
+    // Log Shopify events specifically
+    if (isShopifyEvent) {
+      const shopDomain =
+        data.custom_data?.shop_domain ||
+        (user_data.referer ? new URL(user_data.referer).hostname : "unknown-shop.myshopify.com")
+
+      await logShopifyEvent(pixelId, event_name, shopDomain, data, "success")
+
+      console.log(`Received Shopify event: ${event_name} from ${shopDomain}`)
     }
 
     // Check if the pixel is configured in our system - WITH RETRY LOGIC
