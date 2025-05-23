@@ -18,13 +18,22 @@ export const config = {
   ],
 }
 
-// Simplified middleware function
+// Update the middleware function to check for authentication before redirecting
 export async function middleware(request: NextRequest) {
   const url = new URL(request.url)
 
-  // Check for auth header in session storage (client-side only)
-  // For admin routes, redirect to login page
+  // Check if this is an admin or test-pixel route
   if (request.nextUrl.pathname.startsWith("/admin") || request.nextUrl.pathname.startsWith("/test-pixel")) {
+    // Check for auth cookie or header
+    const authHeader = request.cookies.get("authToken")?.value
+    const sessionAuth = request.headers.get("x-auth-token")
+
+    // If authenticated, allow access
+    if (authHeader || sessionAuth) {
+      return NextResponse.next()
+    }
+
+    // Otherwise redirect to login
     return NextResponse.redirect(
       new URL(`/login?redirect=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`, request.url),
     )

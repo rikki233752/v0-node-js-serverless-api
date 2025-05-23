@@ -10,11 +10,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+// Add import for auth utilities at the top
+import { storeAuthToken, isAuthenticated, clearAuth } from "@/lib/auth-utils"
+
 export default function LoginPage() {
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
+  const [username, setUsername] = useState("admin")
+  const [password, setPassword] = useState("password")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<string>("")
   const router = useRouter()
   const searchParams = useSearchParams()
   const redirect = searchParams.get("redirect") || "/admin/dashboard"
@@ -22,23 +26,26 @@ export default function LoginPage() {
   // Check if already logged in
   useEffect(() => {
     const checkAuth = async () => {
-      const authHeader = sessionStorage.getItem("authHeader")
-      if (authHeader) {
+      // Replace the sessionStorage.getItem check in useEffect with:
+      if (isAuthenticated()) {
+        setDebugInfo("Found existing auth, testing...")
         try {
           const response = await fetch("/api/admin/pixels", {
             headers: {
-              Authorization: authHeader,
+              Authorization: sessionStorage.getItem("authHeader") || "",
             },
           })
 
           if (response.ok) {
+            setDebugInfo("Auth valid, redirecting...")
             router.push(redirect)
           } else {
-            // Clear invalid auth
-            sessionStorage.removeItem("authHeader")
+            setDebugInfo("Auth invalid, clearing...")
+            // Replace the sessionStorage.removeItem line with:
+            clearAuth()
           }
         } catch (err) {
-          console.error("Auth check failed:", err)
+          setDebugInfo("Auth check failed: " + (err instanceof Error ? err.message : "Unknown error"))
         }
       }
     }
@@ -50,10 +57,12 @@ export default function LoginPage() {
     e.preventDefault()
     setError(null)
     setLoading(true)
+    setDebugInfo("Starting login process...")
 
     try {
       // Create basic auth header
       const authHeader = "Basic " + btoa(`${username}:${password}`)
+      setDebugInfo("Created auth header, testing API...")
 
       // Test the credentials with a request to the pixels API
       const response = await fetch("/api/admin/pixels", {
@@ -62,19 +71,29 @@ export default function LoginPage() {
         },
       })
 
+      setDebugInfo(`API response status: ${response.status}`)
+
       if (response.ok) {
-        // Store auth header in session storage
-        sessionStorage.setItem("authHeader", authHeader)
+        setDebugInfo("Login successful, storing auth and redirecting...")
+        // Replace the sessionStorage.setItem line in handleLogin with:
+        storeAuthToken(authHeader)
+
+        // Force a small delay to ensure storage is complete
+        await new Promise((resolve) => setTimeout(resolve, 100))
 
         // Redirect to the requested page or dashboard
-        console.log("Login successful, redirecting to:", redirect)
-        router.push(redirect)
+        console.log("About to redirect to:", redirect)
+        window.location.href = redirect // Use window.location.href instead of router.push
       } else {
+        const errorData = await response.text()
+        setDebugInfo(`Login failed: ${response.status} - ${errorData}`)
         setError("Invalid credentials. Please try again.")
       }
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error"
+      setDebugInfo(`Login error: ${errorMessage}`)
       setError("An error occurred. Please try again.")
-      console.error(err)
+      console.error("Login error:", err)
     } finally {
       setLoading(false)
     }
@@ -93,6 +112,13 @@ export default function LoginPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
+
+          {debugInfo && (
+            <Alert className="mb-4">
+              <AlertDescription>Debug: {debugInfo}</AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
@@ -126,6 +152,36 @@ export default function LoginPage() {
               </p>
             </div>
           </form>
+
+          <div className="mt-4 pt-4 border-t">
+            <h3 className="font-semibold mb-2">Quick Links for Testing:</h3>
+            <div className="space-y-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => (window.location.href = "/api/admin/pixels")}
+              >
+                Test API Endpoint
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => (window.location.href = "/db-status")}
+              >
+                Check Database Status
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => (window.location.href = "/admin/dashboard")}
+              >
+                Go to Dashboard (Direct)
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
