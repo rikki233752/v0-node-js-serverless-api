@@ -54,16 +54,21 @@ export async function POST(request: NextRequest) {
     console.log("✅ [Get Real Web Pixel] Found Web Pixel:", webPixelId)
     console.log("📋 [Get Real Web Pixel] Current settings:", currentSettings)
 
-    // Now update it with the correct settings
+    // Parse current settings to see what's there
+    let parsedCurrentSettings = {}
+    try {
+      parsedCurrentSettings = JSON.parse(currentSettings || "{}")
+    } catch (e) {
+      console.log("⚠️ [Get Real Web Pixel] Could not parse current settings, using empty object")
+    }
+
+    // Only update the accountID field - keep it simple
     const newSettings = {
-      accountID: accountID,
-      pixelId: accountID,
-      gatewayUrl: `${process.env.HOST || "https://v0-node-js-serverless-api-lake.vercel.app"}/api/track`,
-      debug: true,
-      timestamp: new Date().toISOString(),
+      accountID: accountID, // This is the only field we need to change
     }
 
     console.log("🔧 [Get Real Web Pixel] New settings:", newSettings)
+    console.log("📊 [Get Real Web Pixel] Current parsed settings:", parsedCurrentSettings)
 
     const WEB_PIXEL_UPDATE_MUTATION = `
       mutation webPixelUpdate($id: ID!, $webPixel: WebPixelInput!) {
@@ -99,6 +104,8 @@ export async function POST(request: NextRequest) {
         error: "Web Pixel update failed",
         webPixelId: webPixelId,
         currentSettings: currentSettings,
+        parsedCurrentSettings: parsedCurrentSettings,
+        attemptedNewSettings: newSettings,
         userErrors: errors,
         details: errors.map((e) => `${e.code}: ${e.message}`).join(", "),
       })
@@ -109,6 +116,7 @@ export async function POST(request: NextRequest) {
       message: `Successfully updated Web Pixel: ${webPixelId}`,
       webPixelId: webPixelId,
       oldSettings: currentSettings,
+      oldSettingsParsed: parsedCurrentSettings,
       newSettings: JSON.stringify(newSettings),
       updatedWebPixel: updateResult.webPixelUpdate.webPixel,
     })
