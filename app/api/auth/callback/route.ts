@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     console.log("✅ Access token received successfully")
 
-    // Store shop data in database
+    // Store shop data in database FIRST
     await storeShopData({
       shop,
       accessToken,
@@ -67,9 +67,9 @@ export async function GET(request: NextRequest) {
 
     console.log("🏪 Processing shop domain:", { original: shop, cleaned: cleanShopDomain })
 
-    // Auto-create shop configuration entry
+    // ENSURE shop configuration entry is created
     try {
-      await prisma.shopConfig.upsert({
+      const shopConfig = await prisma.shopConfig.upsert({
         where: { shopDomain: cleanShopDomain },
         update: {
           // Update existing config if shop reinstalls
@@ -82,10 +82,10 @@ export async function GET(request: NextRequest) {
           pixelConfigId: null, // Will be set when admin configures the pixel
         },
       })
-      console.log("✅ [OAuth] Shop config entry created/updated for:", cleanShopDomain)
-    } catch (error) {
-      console.error("⚠️ [OAuth] Failed to create shop config entry:", error)
-      // Don't fail the OAuth flow for this
+      console.log("✅ [OAuth] Shop config entry created/updated:", shopConfig)
+    } catch (dbError) {
+      console.error("💥 [OAuth] Database error creating shop config:", dbError)
+      // Continue with OAuth flow even if this fails
     }
 
     // AUTOMATICALLY ACTIVATE WEB PIXEL
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Create success redirect with detailed status
-    const successUrl = new URL("/auth/success", request.url)
+    const successUrl = new URL("/customer/setup", request.url)
     successUrl.searchParams.set("shop", shop)
     successUrl.searchParams.set("status", "connected")
     successUrl.searchParams.set("webPixelStatus", webPixelStatus)
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 30,
     })
 
-    console.log("🏁 Redirecting to success page with Web Pixel status:", webPixelStatus)
+    console.log("🏁 Redirecting to customer setup page with Web Pixel status:", webPixelStatus)
     return response
   } catch (error) {
     console.error("💥 OAuth callback error:", error)
