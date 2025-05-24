@@ -60,15 +60,39 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 export async function getShopAccessToken(shop: string): Promise<string | null> {
   try {
     const result = await executeWithRetry(async () => {
-      return await prisma.shopifyStore.findUnique({
-        where: { shop },
-        select: { accessToken: true },
-      })
+      // Try multiple possible table names based on our schema
+      try {
+        // First try shopAuth table (from lib/db-auth.ts)
+        return await prisma.shopAuth.findUnique({
+          where: { shop },
+          select: { accessToken: true },
+        })
+      } catch (error) {
+        // If shopAuth doesn't exist, try shopifyStore
+        return await prisma.shopifyStore.findUnique({
+          where: { shop },
+          select: { accessToken: true },
+        })
+      }
     })
 
     return result?.accessToken || null
   } catch (error) {
     console.error(`Failed to get access token for shop ${shop}:`, error)
+
+    // Debug: Let's see what tables exist
+    console.log("Available tables in database:")
+    try {
+      const tables = await prisma.$queryRaw`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `
+      console.log("Tables:", tables)
+    } catch (e) {
+      console.log("Could not list tables:", e)
+    }
+
     return null
   }
 }
