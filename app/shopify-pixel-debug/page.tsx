@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { CheckCircle, AlertCircle, RefreshCw, ExternalLink } from "lucide-react"
 
 export default function ShopifyPixelDebug() {
-  const [shop, setShop] = useState("testforgateway-rikki.myshopify.com")
+  const [shop, setShop] = useState("test-rikki-new.myshopify.com")
   const [accessToken, setAccessToken] = useState("")
   const [accountID, setAccountID] = useState("facebook-pixel-gateway")
   const [pixelId, setPixelId] = useState("")
