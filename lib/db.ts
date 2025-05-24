@@ -56,6 +56,23 @@ if (process.env.NODE_ENV === "development") {
 // Prevent multiple instances of Prisma Client in development
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 
+// Helper function to get shop access token from database
+export async function getShopAccessToken(shop: string): Promise<string | null> {
+  try {
+    const result = await executeWithRetry(async () => {
+      return await prisma.shopifyStore.findUnique({
+        where: { shop },
+        select: { accessToken: true },
+      })
+    })
+
+    return result?.accessToken || null
+  } catch (error) {
+    console.error(`Failed to get access token for shop ${shop}:`, error)
+    return null
+  }
+}
+
 // Connection function with retry logic
 export async function connectToDatabase(retries = 3, delay = 1000) {
   let currentTry = 0

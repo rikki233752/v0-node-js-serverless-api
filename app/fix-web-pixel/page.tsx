@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, RefreshCw, Trash2 } from "lucide-react"
+import { CheckCircle, AlertCircle, RefreshCw, Trash2, Edit } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
@@ -19,7 +19,7 @@ export default function FixWebPixel() {
   const checkWebPixels = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/shopify/check-web-pixels?shop=${encodeURIComponent(shop)}`)
+      const response = await fetch(`/api/shopify/list-web-pixels?shop=${encodeURIComponent(shop)}`)
       const data = await response.json()
       setWebPixels(data)
       console.log("Web Pixels check result:", data)
@@ -67,7 +67,7 @@ export default function FixWebPixel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shop,
-          accountID: pixelId, // Use the real Facebook Pixel ID
+          accountID: pixelId,
         }),
       })
       const data = await response.json()
@@ -85,15 +85,11 @@ export default function FixWebPixel() {
     }
   }
 
-  const updateWebPixel = async () => {
+  const updateWebPixel = async (webPixelId: string) => {
     if (!pixelId) {
       alert("Please enter your Facebook Pixel ID")
       return
     }
-
-    // For now, we'll use a placeholder Web Pixel ID
-    // In a real implementation, you'd get this from the check Web Pixels response
-    const webPixelId = "gid://shopify/WebPixel/1" // This would come from the existing Web Pixel
 
     setLoading(true)
     try {
@@ -103,7 +99,7 @@ export default function FixWebPixel() {
         body: JSON.stringify({
           shop,
           accountID: pixelId,
-          webPixelId: webPixelId, // ID of existing Web Pixel
+          webPixelId: webPixelId, // Use the real Web Pixel ID
         }),
       })
       const data = await response.json()
@@ -138,7 +134,7 @@ export default function FixWebPixel() {
             <AlertTitle>Pixel ID Mismatch</AlertTitle>
             <AlertDescription>
               Your Web Pixel is using "default-account" but your database is configured for pixel ID "864857281256627".
-              We need to recreate the Web Pixel with the correct pixel ID.
+              We need to update the existing Web Pixel with the correct pixel ID.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -175,13 +171,10 @@ export default function FixWebPixel() {
           <CardTitle>Web Pixel Management</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Button onClick={checkWebPixels} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Check Web Pixels
-            </Button>
-            <Button onClick={updateWebPixel} disabled={loading || !pixelId} variant="secondary">
-              Update Existing Web Pixel
+              List Web Pixels
             </Button>
             <Button onClick={createWebPixel} disabled={loading || !pixelId} variant="default">
               Create New Web Pixel
@@ -204,7 +197,7 @@ export default function FixWebPixel() {
                 <div className="space-y-2">
                   <h4 className="font-medium">Current Web Pixels:</h4>
                   {webPixels.webPixels.map((pixel: any, index: number) => (
-                    <div key={index} className="p-3 bg-muted rounded flex justify-between items-start">
+                    <div key={index} className="p-4 bg-muted rounded space-y-2">
                       <div>
                         <p>
                           <strong>ID:</strong> {pixel.id}
@@ -212,19 +205,46 @@ export default function FixWebPixel() {
                         <p>
                           <strong>Settings:</strong> {JSON.stringify(pixel.settings)}
                         </p>
+                        <p>
+                          <strong>Created:</strong> {pixel.created_at}
+                        </p>
+                        <p>
+                          <strong>Updated:</strong> {pixel.updated_at}
+                        </p>
                       </div>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => deleteWebPixel(pixel.id)}
-                        disabled={loading}
-                      >
-                        <Trash2 className="h-4 w-4 mr-1" />
-                        Delete
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => updateWebPixel(pixel.id)}
+                          disabled={loading || !pixelId}
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          Update Settings
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => deleteWebPixel(pixel.id)}
+                          disabled={loading}
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
+              )}
+
+              {webPixels.success && webPixels.count === 0 && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>No Web Pixels Found</AlertTitle>
+                  <AlertDescription>
+                    No Web Pixels are currently installed. Click "Create New Web Pixel" to create one.
+                  </AlertDescription>
+                </Alert>
               )}
             </div>
           )}
@@ -255,10 +275,9 @@ export default function FixWebPixel() {
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>Click "Check Web Pixels" to see current Web Pixels</li>
-            <li>Delete any existing Web Pixels with wrong settings</li>
+            <li>Click "List Web Pixels" to see current Web Pixels with their real IDs</li>
             <li>Enter your correct Facebook Pixel ID: 864857281256627</li>
-            <li>Click "Create New Web Pixel" to create it with correct settings</li>
+            <li>Click "Update Settings" on the existing Web Pixel to update it</li>
             <li>Refresh your store and check console logs for correct pixel ID</li>
           </ol>
         </CardContent>
