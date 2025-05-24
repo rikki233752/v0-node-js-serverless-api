@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, RefreshCw, Trash2, Edit } from "lucide-react"
+import { CheckCircle, AlertCircle, RefreshCw, TestTube } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
@@ -15,6 +15,48 @@ export default function FixWebPixel() {
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [webPixels, setWebPixels] = useState<any>(null)
+
+  const testGraphQL = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/shopify/list-web-pixels-graphql?shop=${encodeURIComponent(shop)}`)
+      const data = await response.json()
+      setResults(data)
+      console.log("GraphQL test result:", data)
+    } catch (error) {
+      console.error("GraphQL test failed:", error)
+      setResults({ success: false, error: "GraphQL test failed" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const testCreateWebPixel = async () => {
+    if (!pixelId) {
+      alert("Please enter your Facebook Pixel ID")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch("/api/shopify/test-web-pixel-create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop,
+          accountID: pixelId,
+        }),
+      })
+      const data = await response.json()
+      setResults(data)
+      console.log("Create test result:", data)
+    } catch (error) {
+      console.error("Create test failed:", error)
+      setResults({ success: false, error: "Create test failed" })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const checkWebPixels = async () => {
     setLoading(true)
@@ -31,110 +73,24 @@ export default function FixWebPixel() {
     }
   }
 
-  const deleteWebPixel = async (webPixelId: string) => {
-    setLoading(true)
-    try {
-      const response = await fetch("/api/shopify/delete-web-pixel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop, webPixelId }),
-      })
-      const data = await response.json()
-      setResults(data)
-      console.log("Delete result:", data)
-
-      if (data.success) {
-        await checkWebPixels()
-      }
-    } catch (error) {
-      console.error("Delete failed:", error)
-      setResults({ success: false, error: "Delete failed" })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const createWebPixel = async () => {
-    if (!pixelId) {
-      alert("Please enter your Facebook Pixel ID")
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch("/api/shopify/activate-web-pixel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop,
-          accountID: pixelId,
-        }),
-      })
-      const data = await response.json()
-      setResults(data)
-      console.log("Create result:", data)
-
-      if (data.success) {
-        await checkWebPixels()
-      }
-    } catch (error) {
-      console.error("Create failed:", error)
-      setResults({ success: false, error: "Create failed" })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const updateWebPixel = async (webPixelId: string) => {
-    if (!pixelId) {
-      alert("Please enter your Facebook Pixel ID")
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await fetch("/api/shopify/update-web-pixel", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shop,
-          accountID: pixelId,
-          webPixelId: webPixelId, // Use the real Web Pixel ID
-        }),
-      })
-      const data = await response.json()
-      setResults(data)
-      console.log("Update result:", data)
-
-      if (data.success) {
-        await checkWebPixels()
-      }
-    } catch (error) {
-      console.error("Update failed:", error)
-      setResults({ success: false, error: "Update failed" })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold">Fix Web Pixel Configuration</h1>
-        <p className="text-muted-foreground mt-2">Update your Web Pixel to use the correct Facebook Pixel ID</p>
+        <p className="text-muted-foreground mt-2">Debug and fix your Web Pixel setup</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Current Issue</CardTitle>
+          <CardTitle>Current Status</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Pixel ID Mismatch</AlertTitle>
+            <AlertTitle>Web Pixels API Issue</AlertTitle>
             <AlertDescription>
-              Your Web Pixel is using "default-account" but your database is configured for pixel ID "864857281256627".
-              We need to update the existing Web Pixel with the correct pixel ID.
+              The REST API for Web Pixels returned 404. Let's test the GraphQL API and try creating a Web Pixel
+              directly.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -168,85 +124,32 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Web Pixel Management</CardTitle>
+          <CardTitle>Debug & Test</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button onClick={checkWebPixels} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              List Web Pixels
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Button onClick={testGraphQL} disabled={loading} variant="outline">
+              <TestTube className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Test GraphQL API
             </Button>
-            <Button onClick={createWebPixel} disabled={loading || !pixelId} variant="default">
-              Create New Web Pixel
+            <Button onClick={testCreateWebPixel} disabled={loading || !pixelId} variant="default">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Create Web Pixel
+            </Button>
+            <Button onClick={checkWebPixels} disabled={loading} variant="secondary">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Try REST API
             </Button>
           </div>
 
           {webPixels && (
-            <div className="space-y-4">
-              <Alert variant={webPixels.success ? "default" : "destructive"}>
-                <CheckCircle className="h-4 w-4" />
-                <AlertTitle>Web Pixels Status</AlertTitle>
-                <AlertDescription>
-                  {webPixels.success
-                    ? `Found ${webPixels.count} Web Pixel(s)`
-                    : `Error: ${webPixels.error || "Unknown error"}`}
-                </AlertDescription>
-              </Alert>
-
-              {webPixels.success && webPixels.webPixels && webPixels.webPixels.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Current Web Pixels:</h4>
-                  {webPixels.webPixels.map((pixel: any, index: number) => (
-                    <div key={index} className="p-4 bg-muted rounded space-y-2">
-                      <div>
-                        <p>
-                          <strong>ID:</strong> {pixel.id}
-                        </p>
-                        <p>
-                          <strong>Settings:</strong> {JSON.stringify(pixel.settings)}
-                        </p>
-                        <p>
-                          <strong>Created:</strong> {pixel.created_at}
-                        </p>
-                        <p>
-                          <strong>Updated:</strong> {pixel.updated_at}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => updateWebPixel(pixel.id)}
-                          disabled={loading || !pixelId}
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Update Settings
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => deleteWebPixel(pixel.id)}
-                          disabled={loading}
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {webPixels.success && webPixels.count === 0 && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>No Web Pixels Found</AlertTitle>
-                  <AlertDescription>
-                    No Web Pixels are currently installed. Click "Create New Web Pixel" to create one.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
+            <Alert variant={webPixels.success ? "default" : "destructive"}>
+              <CheckCircle className="h-4 w-4" />
+              <AlertTitle>REST API Result</AlertTitle>
+              <AlertDescription>
+                {webPixels.success ? `Success: ${webPixels.message}` : `Error: ${webPixels.error}`}
+              </AlertDescription>
+            </Alert>
           )}
         </CardContent>
       </Card>
@@ -271,14 +174,14 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Steps to Fix</CardTitle>
+          <CardTitle>Next Steps</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>Click "List Web Pixels" to see current Web Pixels with their real IDs</li>
-            <li>Enter your correct Facebook Pixel ID: 864857281256627</li>
-            <li>Click "Update Settings" on the existing Web Pixel to update it</li>
-            <li>Refresh your store and check console logs for correct pixel ID</li>
+            <li>Click "Test GraphQL API" to verify API connection</li>
+            <li>Enter your Facebook Pixel ID: 864857281256627</li>
+            <li>Click "Create Web Pixel" to create/update the Web Pixel</li>
+            <li>Check your store's browser console for pixel detection</li>
           </ol>
         </CardContent>
       </Card>
