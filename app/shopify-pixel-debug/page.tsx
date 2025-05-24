@@ -1,331 +1,270 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { XCircle, AlertCircle, RefreshCw, CheckCircle, Info } from "lucide-react"
+import { CheckCircle, AlertCircle, RefreshCw } from "lucide-react"
 
 export default function ShopifyPixelDebug() {
-  const [shop, setShop] = useState("")
+  const [shop, setShop] = useState("testforgateway-rikki.myshopify.com")
+  const [accessToken, setAccessToken] = useState("")
+  const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [registering, setRegistering] = useState(false)
-  const [result, setResult] = useState<any>(null)
-  const [capabilities, setCapabilities] = useState<any>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [databaseInfo, setDatabaseInfo] = useState<any>(null)
+  const [webPixels, setWebPixels] = useState<any>(null)
 
-  // Get shop from URL params if available
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    const shopParam = urlParams.get("shop")
-    if (shopParam) {
-      setShop(shopParam)
-    }
-  }, [])
-
-  const checkStoreCapabilities = async () => {
-    if (!shop) {
-      setError("Please enter a shop domain")
-      return
-    }
-
+  const checkDatabase = async () => {
     setLoading(true)
-    setError(null)
-
     try {
-      const response = await fetch(`/api/shopify/store-capabilities?shop=${encodeURIComponent(shop)}`)
+      const response = await fetch("/api/debug/database")
       const data = await response.json()
-
-      if (response.ok) {
-        setCapabilities(data)
-        setError(null)
-      } else {
-        setError(data.error || "Failed to check store capabilities")
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error")
+      setDatabaseInfo(data)
+      console.log("Database info:", data)
+    } catch (error) {
+      console.error("Database check failed:", error)
+      setDatabaseInfo({ success: false, error: "Failed to check database" })
     } finally {
       setLoading(false)
     }
   }
 
-  const registerScriptTag = async () => {
-    if (!shop) {
-      setError("Please enter a shop domain")
-      return
-    }
-
-    setRegistering(true)
-    setError(null)
-
-    try {
-      const response = await fetch("/api/shopify/register-script-tag", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ shop }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        await checkStoreCapabilities() // Refresh capabilities
-        setError(null)
-      } else {
-        setError(data.error || "Failed to register script tag")
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error")
-    } finally {
-      setRegistering(false)
-    }
-  }
-
-  const checkPixelStatus = async () => {
-    if (!shop) {
-      setError("Please enter a shop domain")
+  const manualRegister = async () => {
+    if (!shop || !accessToken) {
+      alert("Please enter both shop domain and access token")
       return
     }
 
     setLoading(true)
-    setError(null)
-    setResult(null)
-
     try {
-      const response = await fetch(`/api/debug/shopify-pixel?shop=${encodeURIComponent(shop)}`)
+      const response = await fetch("/api/shopify/manual-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop, accessToken }),
+      })
       const data = await response.json()
+      setResults(data)
+      console.log("Manual registration result:", data)
 
-      if (response.ok) {
-        setResult(data)
-      } else {
-        setError(data.error || "Failed to check pixel status")
+      if (data.success) {
+        await checkDatabase()
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error")
+    } catch (error) {
+      console.error("Manual registration failed:", error)
+      setResults({ success: false, error: "Registration failed" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const checkWebPixels = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/shopify/check-web-pixels?shop=${encodeURIComponent(shop)}`)
+      const data = await response.json()
+      setWebPixels(data)
+      console.log("Web Pixels check result:", data)
+    } catch (error) {
+      console.error("Web Pixels check failed:", error)
+      setWebPixels({ success: false, error: "Failed to check Web Pixels" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const activateWebPixel = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch("/api/shopify/activate-web-pixel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop }),
+      })
+      const data = await response.json()
+      setResults(data)
+      console.log("Web Pixel activation result:", data)
+
+      if (data.success) {
+        // Refresh Web Pixels list
+        await checkWebPixels()
+      }
+    } catch (error) {
+      console.error("Web Pixel activation failed:", error)
+      setResults({ success: false, error: "Web Pixel activation failed" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const checkStoreCapabilities = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch("/api/shopify/store-capabilities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shop }),
+      })
+      const data = await response.json()
+      setResults(data)
+      console.log("Store capabilities:", data)
+    } catch (error) {
+      console.error("Store capabilities check failed:", error)
+      setResults({ success: false, error: "Failed to check store capabilities" })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Shopify Store Debug & Setup</h1>
-        <Button variant="outline" onClick={() => (window.location.href = "/")}>
-          Back to Home
-        </Button>
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold">Shopify Web Pixel Activation</h1>
+        <p className="text-muted-foreground mt-2">Activate your Web Pixel extension using GraphQL</p>
       </div>
 
-      <Card className="mb-6">
+      <Card>
         <CardHeader>
-          <CardTitle>Store Analysis</CardTitle>
-          <CardDescription>Check your store's capabilities and setup tracking</CardDescription>
+          <CardTitle>Store Configuration</CardTitle>
+          <CardDescription>Configure your Shopify store details</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="shop">Shopify Store Domain</Label>
-              <Input
-                id="shop"
-                value={shop}
-                onChange={(e) => setShop(e.target.value)}
-                placeholder="your-store.myshopify.com"
-              />
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <XCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="flex gap-2">
-              <Button onClick={checkStoreCapabilities} disabled={loading || !shop} className="flex items-center gap-2">
-                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                {loading ? "Checking..." : "Check Store Capabilities"}
-              </Button>
-
-              <Button onClick={checkPixelStatus} disabled={loading || !shop} variant="secondary">
-                Check Pixel Status
-              </Button>
-            </div>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="shop">Shopify Store Domain</Label>
+            <Input
+              id="shop"
+              value={shop}
+              onChange={(e) => setShop(e.target.value)}
+              placeholder="your-store.myshopify.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="accessToken">Access Token (for manual registration)</Label>
+            <Input
+              id="accessToken"
+              type="password"
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              placeholder="Enter your Shopify access token"
+            />
           </div>
         </CardContent>
       </Card>
 
-      {capabilities && (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Store Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <strong>Store Name:</strong> {capabilities.shopDetails?.name || "Unknown"}
-                </div>
-                <div>
-                  <strong>Plan:</strong>{" "}
-                  {capabilities.shopDetails?.plan_display_name || capabilities.shopDetails?.plan_name || "Unknown"}
-                </div>
-                <div>
-                  <strong>Country:</strong> {capabilities.shopDetails?.country_name || "Unknown"}
-                </div>
-                <div>
-                  <strong>Development Store:</strong>{" "}
-                  <Badge variant={capabilities.capabilities?.isDevelopmentStore ? "secondary" : "default"}>
-                    {capabilities.capabilities?.isDevelopmentStore ? "Yes" : "No"}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Database & Registration</CardTitle>
+          <CardDescription>Check database status and register shop if needed</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button onClick={checkDatabase} disabled={loading}>
+              {loading ? "Checking..." : "Check Database"}
+            </Button>
+            <Button onClick={manualRegister} disabled={loading || !shop || !accessToken}>
+              {loading ? "Registering..." : "Register Shop Manually"}
+            </Button>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>API Capabilities</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span>Web Pixels API</span>
-                  <Badge
-                    variant={
-                      capabilities.capabilities?.pixelsApi &&
-                      Object.values(capabilities.capabilities.pixelsApi).some((api: any) => api.available)
-                        ? "default"
-                        : "destructive"
-                    }
-                  >
-                    {capabilities.capabilities?.pixelsApi &&
-                    Object.values(capabilities.capabilities.pixelsApi).some((api: any) => api.available)
-                      ? "Available"
-                      : "Not Available"}
-                  </Badge>
-                </div>
+          {databaseInfo && (
+            <Alert variant={databaseInfo.success ? "default" : "destructive"}>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{databaseInfo.success ? "Database Connected" : "Database Error"}</AlertTitle>
+              <AlertDescription>{databaseInfo.message}</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
-                <div className="flex items-center justify-between">
-                  <span>Script Tags API</span>
-                  <Badge variant={capabilities.capabilities?.scriptTags?.available ? "default" : "destructive"}>
-                    {capabilities.capabilities?.scriptTags?.available ? "Available" : "Not Available"}
-                  </Badge>
-                </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Web Pixel Management</CardTitle>
+          <CardDescription>Check and activate Web Pixel extensions using GraphQL</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button onClick={checkWebPixels} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              {loading ? "Checking..." : "Check Web Pixels"}
+            </Button>
+            <Button onClick={activateWebPixel} disabled={loading} variant="default">
+              {loading ? "Activating..." : "Activate Web Pixel"}
+            </Button>
+          </div>
 
-                <div className="flex items-center justify-between">
-                  <span>Webhooks API</span>
-                  <Badge variant={capabilities.capabilities?.webhooks?.available ? "default" : "destructive"}>
-                    {capabilities.capabilities?.webhooks?.available ? "Available" : "Not Available"}
-                  </Badge>
-                </div>
-              </div>
+          {webPixels && (
+            <div className="space-y-4">
+              <Alert variant={webPixels.success ? "default" : "destructive"}>
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Web Pixels Status</AlertTitle>
+                <AlertDescription>
+                  {webPixels.success
+                    ? `Found ${webPixels.count} Web Pixel(s)`
+                    : `Error: ${webPixels.error || "Unknown error"}`}
+                </AlertDescription>
+              </Alert>
 
-              {capabilities.capabilities?.scopes?.missing?.length > 0 && (
-                <Alert className="mt-4">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Missing Permissions</AlertTitle>
-                  <AlertDescription>
-                    Missing scopes: {capabilities.capabilities.scopes.missing.join(", ")}
-                    <br />
-                    Please reinstall the app to grant these permissions.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Recommended Solution</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {capabilities.capabilities?.scriptTags?.available ? (
-                <div className="space-y-4">
-                  <Alert>
-                    <CheckCircle className="h-4 w-4" />
-                    <AlertTitle>Script Tags Available</AlertTitle>
-                    <AlertDescription>
-                      Since Web Pixels API is not available, we can use Script Tags to inject Facebook Pixel tracking
-                      code into your store.
-                    </AlertDescription>
-                  </Alert>
-
-                  <Button onClick={registerScriptTag} disabled={registering} className="flex items-center gap-2">
-                    {registering ? "Setting up..." : "Setup Script Tag Tracking"}
-                  </Button>
-                </div>
-              ) : (
-                <Alert variant="destructive">
-                  <XCircle className="h-4 w-4" />
-                  <AlertTitle>Limited API Access</AlertTitle>
-                  <AlertDescription>
-                    This store has limited API access. You may need to:
-                    <ul className="list-disc pl-5 mt-2">
-                      <li>Upgrade to a paid Shopify plan</li>
-                      <li>Use a production store instead of a development store</li>
-                      <li>Contact Shopify support for assistance</li>
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {capabilities.recommendations && capabilities.recommendations.length > 0 && (
-                <div className="mt-4">
-                  <h4 className="font-semibold mb-2">Recommendations:</h4>
-                  <ul className="list-disc pl-5 space-y-1">
-                    {capabilities.recommendations.map((rec: string, index: number) => (
-                      <li key={index} className="text-sm">
-                        {rec}
-                      </li>
-                    ))}
-                  </ul>
+              {webPixels.success && webPixels.webPixels && webPixels.webPixels.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium">Active Web Pixels:</h4>
+                  {webPixels.webPixels.map((pixel: any, index: number) => (
+                    <div key={index} className="p-3 bg-muted rounded">
+                      <p>
+                        <strong>ID:</strong> {pixel.id}
+                      </p>
+                      <p>
+                        <strong>Settings:</strong> {JSON.stringify(pixel.settings)}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {result && (
-        <Card className="mt-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Store Analysis</CardTitle>
+          <CardDescription>Check your store's capabilities</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={checkStoreCapabilities} disabled={loading}>
+            {loading ? "Checking..." : "Check Store Capabilities"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {results && (
+        <Card>
           <CardHeader>
-            <CardTitle>Pixel Status Details</CardTitle>
+            <CardTitle>Results</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="text-xs bg-gray-100 p-4 rounded overflow-auto">{JSON.stringify(result, null, 2)}</pre>
+            <Textarea value={JSON.stringify(results, null, 2)} readOnly className="min-h-[200px] font-mono text-sm" />
           </CardContent>
         </Card>
       )}
 
-      <Card className="mt-6">
+      <Card>
         <CardHeader>
-          <CardTitle>Understanding the Issue</CardTitle>
+          <CardTitle>Instructions</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
-            <Info className="h-4 w-4" />
-            <AlertTitle>Why Web Pixels API Might Not Be Available</AlertTitle>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>How to use this tool</AlertTitle>
             <AlertDescription>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>
-                  <strong>Development Store:</strong> Shopify development stores have limited API access
-                </li>
-                <li>
-                  <strong>Plan Limitations:</strong> Some Shopify plans don't support advanced APIs
-                </li>
-                <li>
-                  <strong>New Feature:</strong> Web Pixels is a relatively new feature and may not be available on all
-                  stores
-                </li>
-                <li>
-                  <strong>Regional Restrictions:</strong> Some features may not be available in all regions
-                </li>
-              </ul>
+              <ol className="list-decimal pl-5 space-y-1 mt-2">
+                <li>First, check if your shop is in the database</li>
+                <li>If not found, register it manually with an access token</li>
+                <li>Check existing Web Pixels to see current status</li>
+                <li>Click "Activate Web Pixel" to create a new Web Pixel using GraphQL</li>
+                <li>Verify the Web Pixel was created successfully</li>
+              </ol>
             </AlertDescription>
           </Alert>
         </CardContent>

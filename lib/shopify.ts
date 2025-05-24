@@ -36,7 +36,10 @@ export function generateNonce(length = 32): string {
  * Builds the OAuth authorization URL
  */
 export function getAuthUrl(shop: string, nonce: string): string {
-  const scopes = process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events"
+  // Updated scopes to include script tags and webhooks
+  const scopes =
+    process.env.SHOPIFY_SCOPES ||
+    "read_pixels,write_pixels,read_customer_events,read_script_tags,write_script_tags,read_orders,write_webhooks"
 
   // Get the HOST environment variable
   const host = process.env.HOST || ""
