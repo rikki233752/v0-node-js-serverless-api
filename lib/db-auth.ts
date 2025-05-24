@@ -100,3 +100,18 @@ export async function getShopConfigStatus(shop: string) {
     pixelName: shopConfig?.pixelConfig?.name || null,
   }
 }
+
+/**
+ * Authenticates admin user
+ */
+export async function authenticateAdmin(username: string, password: string): Promise<boolean> {
+  const adminUsername = process.env.ADMIN_USERNAME
+  const adminPassword = process.env.ADMIN_PASSWORD
+
+  if (!adminUsername || !adminPassword) {
+    console.error("Admin credentials not configured")
+    return false
+  }
+
+  return username === adminUsername && password === adminPassword
+}
