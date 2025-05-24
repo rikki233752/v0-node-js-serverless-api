@@ -31,7 +31,8 @@ export class ShopifyGraphQLClient {
     })
 
     if (!response.ok) {
-      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`)
+      const responseText = await response.text()
+      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText} - ${responseText}`)
     }
 
     const data = await response.json()
@@ -44,6 +45,7 @@ export class ShopifyGraphQLClient {
   }
 }
 
+// Exact mutation from Shopify documentation
 const WEB_PIXEL_CREATE_MUTATION = `
   mutation webPixelCreate($webPixel: WebPixelInput!) {
     webPixelCreate(webPixel: $webPixel) {
@@ -60,35 +62,48 @@ const WEB_PIXEL_CREATE_MUTATION = `
   }
 `
 
-export async function activateWebPixel(shop: string, accessToken: string) {
+export async function activateWebPixel(shop: string, accessToken: string, pixelId?: string) {
   try {
+    console.log("🚀 Starting Web Pixel activation for shop:", shop)
+
     const client = new ShopifyGraphQLClient(shop, accessToken)
 
-    // Prepare the settings according to shopify.extension.toml
+    // Use the exact format from Shopify documentation
+    // Start with the simple accountID format, then add other settings
     const settings = {
-      accountID: "facebook-pixel-gateway",
-      pixelId: process.env.FACEBOOK_PIXEL_ID || "",
-      gatewayUrl: (process.env.HOST || "https://v0-node-js-serverless-api-lake.vercel.app") + "/api/track",
-      debug: process.env.NODE_ENV === "development",
+      accountID: pixelId || process.env.FACEBOOK_PIXEL_ID || "123", // Use 123 as fallback like in docs
     }
+
+    // Add additional settings if they exist
+    if (process.env.FACEBOOK_PIXEL_ID || pixelId) {
+      settings.pixelId = pixelId || process.env.FACEBOOK_PIXEL_ID
+    }
+
+    if (process.env.HOST) {
+      settings.gatewayUrl = process.env.HOST + "/api/track"
+    }
+
+    settings.debug = process.env.NODE_ENV === "development"
 
     // Convert settings to JSON string as required by Shopify
     const settingsJson = JSON.stringify(settings)
 
-    console.log("Creating Web Pixel with settings:", settingsJson)
+    console.log("📝 Creating Web Pixel with settings:", settingsJson)
+    console.log("🔧 Using access token:", accessToken ? "present" : "missing")
 
-    // Execute the mutation
+    // Execute the exact mutation from Shopify docs
     const result = await client.query(WEB_PIXEL_CREATE_MUTATION, {
       webPixel: {
         settings: settingsJson,
       },
     })
 
-    console.log("Web Pixel creation result:", result)
+    console.log("📊 Web Pixel creation result:", JSON.stringify(result, null, 2))
 
     // Check for user errors
     if (result.webPixelCreate.userErrors && result.webPixelCreate.userErrors.length > 0) {
       const errors = result.webPixelCreate.userErrors
+      console.error("❌ Web Pixel creation user errors:", errors)
       return {
         success: false,
         error: "Web Pixel creation failed",
@@ -99,6 +114,7 @@ export async function activateWebPixel(shop: string, accessToken: string) {
 
     // Check if web pixel was created
     if (!result.webPixelCreate.webPixel) {
+      console.error("❌ Web Pixel creation failed - no pixel returned")
       return {
         success: false,
         error: "Web Pixel creation failed - no pixel returned",
@@ -106,15 +122,18 @@ export async function activateWebPixel(shop: string, accessToken: string) {
       }
     }
 
+    console.log("✅ Web Pixel created successfully:", result.webPixelCreate.webPixel.id)
     return {
       success: true,
       webPixel: result.webPixelCreate.webPixel,
+      message: `Web Pixel created with ID: ${result.webPixelCreate.webPixel.id}`,
     }
   } catch (error) {
-    console.error("Error in activateWebPixel:", error)
+    console.error("💥 Error in activateWebPixel:", error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
     }
   }
 }
