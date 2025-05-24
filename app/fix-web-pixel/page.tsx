@@ -85,6 +85,42 @@ export default function FixWebPixel() {
     }
   }
 
+  const updateWebPixel = async () => {
+    if (!pixelId) {
+      alert("Please enter your Facebook Pixel ID")
+      return
+    }
+
+    // For now, we'll use a placeholder Web Pixel ID
+    // In a real implementation, you'd get this from the check Web Pixels response
+    const webPixelId = "gid://shopify/WebPixel/1" // This would come from the existing Web Pixel
+
+    setLoading(true)
+    try {
+      const response = await fetch("/api/shopify/update-web-pixel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop,
+          accountID: pixelId,
+          webPixelId: webPixelId, // ID of existing Web Pixel
+        }),
+      })
+      const data = await response.json()
+      setResults(data)
+      console.log("Update result:", data)
+
+      if (data.success) {
+        await checkWebPixels()
+      }
+    } catch (error) {
+      console.error("Update failed:", error)
+      setResults({ success: false, error: "Update failed" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
@@ -139,10 +175,13 @@ export default function FixWebPixel() {
           <CardTitle>Web Pixel Management</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Button onClick={checkWebPixels} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Check Web Pixels
+            </Button>
+            <Button onClick={updateWebPixel} disabled={loading || !pixelId} variant="secondary">
+              Update Existing Web Pixel
             </Button>
             <Button onClick={createWebPixel} disabled={loading || !pixelId} variant="default">
               Create New Web Pixel
