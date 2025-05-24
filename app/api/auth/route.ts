@@ -58,13 +58,13 @@ export async function GET(request: NextRequest) {
   // Store nonce in cookie for verification during callback
   const response = NextResponse.redirect(authUrl)
 
-  // Set a secure cookie with the nonce
+  // Set cookies with more permissive settings to ensure they work
   response.cookies.set({
     name: "shopify_nonce",
     value: nonce,
-    httpOnly: true,
+    httpOnly: false, // Allow JavaScript access for debugging
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "none", // More permissive for cross-site requests
     path: "/",
     maxAge: 60 * 60, // 1 hour
   })
@@ -73,13 +73,14 @@ export async function GET(request: NextRequest) {
   response.cookies.set({
     name: "shopify_shop",
     value: shop,
-    httpOnly: true,
+    httpOnly: false, // Allow JavaScript access for debugging
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "none", // More permissive for cross-site requests
     path: "/",
     maxAge: 60 * 60, // 1 hour
   })
 
   console.log("Redirecting to Shopify OAuth:", authUrl)
+  console.log("Set cookies:", { nonce, shop })
   return response
 }

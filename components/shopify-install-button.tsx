@@ -27,6 +27,7 @@ export function ShopifyInstallButton({
   const [shopDomain, setShopDomain] = useState(initialShop || "")
   const [showInput, setShowInput] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
   // If initialShop is provided, show the input field
   useEffect(() => {
@@ -35,7 +36,7 @@ export function ShopifyInstallButton({
     }
   }, [initialShop])
 
-  const handleInstall = () => {
+  const handleInstall = async () => {
     // If disabled, do nothing
     if (disabled) return
 
@@ -44,47 +45,59 @@ export function ShopifyInstallButton({
       return
     }
 
-    // Validate shop domain
-    let formattedShop = shopDomain.trim().toLowerCase()
-
-    // Remove protocol (http:// or https://)
-    formattedShop = formattedShop.replace(/^https?:\/\//, "")
-
-    // Remove trailing slash
-    formattedShop = formattedShop.replace(/\/$/, "")
-
-    // If empty, show error
-    if (!formattedShop) {
-      setError("Please enter your Shopify store domain")
-      return
-    }
-
-    // If they didn't add .myshopify.com, add it for them
-    if (!formattedShop.includes(".myshopify.com")) {
-      formattedShop = `${formattedShop}.myshopify.com`
-    }
-
-    // Validate the shop domain format
-    const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
-    if (!shopRegex.test(formattedShop)) {
-      setError("Please enter a valid Shopify store domain")
-      return
-    }
-
-    // Clear any previous errors
+    setLoading(true)
     setError(null)
 
-    // Check if API key is provided
-    if (!apiKey) {
-      setError("API key is not configured. Please contact the administrator.")
-      return
+    try {
+      // Validate shop domain
+      let formattedShop = shopDomain.trim().toLowerCase()
+
+      // Remove protocol (http:// or https://)
+      formattedShop = formattedShop.replace(/^https?:\/\//, "")
+
+      // Remove trailing slash
+      formattedShop = formattedShop.replace(/\/$/, "")
+
+      // If empty, show error
+      if (!formattedShop) {
+        setError("Please enter your Shopify store domain")
+        return
+      }
+
+      // If they didn't add .myshopify.com, add it for them
+      if (!formattedShop.includes(".myshopify.com")) {
+        formattedShop = `${formattedShop}.myshopify.com`
+      }
+
+      // Validate the shop domain format
+      const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
+      if (!shopRegex.test(formattedShop)) {
+        setError("Please enter a valid Shopify store domain")
+        return
+      }
+
+      // Check if API key is provided
+      if (!apiKey) {
+        setError("API key is not configured. Please contact the administrator.")
+        return
+      }
+
+      // Use the direct install API to get the OAuth URL
+      const response = await fetch(`/api/install?shop=${encodeURIComponent(formattedShop)}`)
+      const data = await response.json()
+
+      if (data.success) {
+        // Redirect to the OAuth URL
+        window.location.href = data.installUrl
+      } else {
+        setError(data.error || "Failed to generate installation URL")
+      }
+    } catch (err) {
+      setError("An error occurred while generating the installation URL")
+      console.error(err)
+    } finally {
+      setLoading(false)
     }
-
-    // Build the installation URL
-    const installUrl = `https://${formattedShop}/admin/oauth/authorize?client_id=${apiKey}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`
-
-    // Redirect to the Shopify OAuth screen
-    window.location.href = installUrl
   }
 
   return (
@@ -104,10 +117,10 @@ export function ShopifyInstallButton({
             placeholder="yourstore.myshopify.com"
             className="flex-grow"
             onKeyDown={(e) => e.key === "Enter" && handleInstall()}
-            disabled={disabled}
+            disabled={disabled || loading}
           />
-          <Button onClick={handleInstall} className="whitespace-nowrap" disabled={disabled}>
-            {buttonText}
+          <Button onClick={handleInstall} className="whitespace-nowrap" disabled={disabled || loading}>
+            {loading ? "Generating..." : buttonText}
           </Button>
         </div>
       ) : (

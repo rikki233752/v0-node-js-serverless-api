@@ -54,13 +54,14 @@ export function getAuthUrl(shop: string, nonce: string): string {
     host: cleanHost,
     redirectUri,
     apiKey: process.env.SHOPIFY_API_KEY,
+    nonce,
   })
 
   const authUrl = new URL(`https://${shop}/admin/oauth/authorize`)
   authUrl.searchParams.append("client_id", process.env.SHOPIFY_API_KEY)
   authUrl.searchParams.append("scope", scopes)
   authUrl.searchParams.append("redirect_uri", redirectUri)
-  authUrl.searchParams.append("state", nonce)
+  authUrl.searchParams.append("state", nonce) // This is crucial!
 
   return authUrl.toString()
 }
