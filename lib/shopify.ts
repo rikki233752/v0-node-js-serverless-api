@@ -117,20 +117,20 @@ export function isValidShop(shop: string): boolean {
  * Creates a Shopify Admin API client for a specific shop
  */
 export async function shopifyAdmin(shop: string) {
-  const { getShopData } = await import("./db-auth")
-  const shopData = await getShopData(shop)
+  const { getShopAccessToken } = await import("./db")
+  const accessToken = await getShopAccessToken(shop)
 
-  if (!shopData?.accessToken) {
+  if (!accessToken) {
     throw new Error(`No access token found for shop: ${shop}`)
   }
 
   return {
-    async graphql(query: string, variables?: any) {
+    async query(query: string, variables?: any) {
       const response = await fetch(`https://${shop}/admin/api/2023-10/graphql.json`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Shopify-Access-Token": shopData.accessToken,
+          "X-Shopify-Access-Token": accessToken,
         },
         body: JSON.stringify({ query, variables }),
       })
@@ -161,7 +161,7 @@ export function shopifyAdminClient() {
       }
 
       const client = await shopifyAdmin(shop)
-      return client.graphql(query, variables)
+      return client.query(query, variables)
     },
   }
 }

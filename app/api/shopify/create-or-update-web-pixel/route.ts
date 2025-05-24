@@ -36,7 +36,8 @@ export async function POST(request: NextRequest) {
     console.log("✅ [Create/Update Web Pixel] Access token found")
 
     // Create Shopify client
-    const client = shopifyAdmin(shop)
+    console.log("🔧 [Create/Update Web Pixel] Creating Shopify client...")
+    const client = await shopifyAdmin(shop)
 
     // Prepare Web Pixel settings
     const settings = {

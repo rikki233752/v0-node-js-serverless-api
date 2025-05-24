@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, TestTube, Zap } from "lucide-react"
+import { CheckCircle, AlertCircle, Zap, Bug } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
@@ -15,16 +15,32 @@ export default function FixWebPixel() {
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
-  const exploreGraphQL = async () => {
+  const debugWebPixel = async () => {
+    if (!pixelId) {
+      alert("Please enter your Facebook Pixel ID")
+      return
+    }
+
     setLoading(true)
     try {
-      const response = await fetch(`/api/shopify/explore-graphql?shop=${encodeURIComponent(shop)}`)
+      const response = await fetch("/api/shopify/debug-web-pixel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop,
+          accountID: pixelId,
+        }),
+      })
+
+      console.log("Response status:", response.status)
+      console.log("Response headers:", response.headers)
+
       const data = await response.json()
       setResults(data)
-      console.log("GraphQL exploration result:", data)
+      console.log("Debug result:", data)
     } catch (error) {
-      console.error("GraphQL exploration failed:", error)
-      setResults({ success: false, error: "GraphQL exploration failed" })
+      console.error("Debug failed:", error)
+      setResults({ success: false, error: "Debug failed", details: error.message })
     } finally {
       setLoading(false)
     }
@@ -46,12 +62,16 @@ export default function FixWebPixel() {
           accountID: pixelId,
         }),
       })
+
+      console.log("Response status:", response.status)
+      console.log("Response headers:", response.headers)
+
       const data = await response.json()
       setResults(data)
       console.log("Create/Update result:", data)
     } catch (error) {
       console.error("Create/Update failed:", error)
-      setResults({ success: false, error: "Create/Update failed" })
+      setResults({ success: false, error: "Create/Update failed", details: error.message })
     } finally {
       setLoading(false)
     }
@@ -61,20 +81,19 @@ export default function FixWebPixel() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold">Fix Web Pixel Configuration</h1>
-        <p className="text-muted-foreground mt-2">Create or update your Web Pixel with the correct settings</p>
+        <p className="text-muted-foreground mt-2">Debug and fix your Web Pixel setup</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Current Approach</CardTitle>
+          <CardTitle>Debug Strategy</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>New Strategy</AlertTitle>
+            <AlertTitle>Step-by-Step Debugging</AlertTitle>
             <AlertDescription>
-              Since listing Web Pixels is complex, we'll try to create a Web Pixel directly. If one already exists,
-              Shopify will tell us and we can handle it accordingly.
+              First run the debug endpoint to see exactly where the issue is, then try the full creation.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -112,9 +131,9 @@ export default function FixWebPixel() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button onClick={exploreGraphQL} disabled={loading} variant="outline">
-              <TestTube className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Explore GraphQL Schema
+            <Button onClick={debugWebPixel} disabled={loading || !pixelId} variant="outline">
+              <Bug className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Debug Web Pixel
             </Button>
             <Button onClick={createOrUpdateWebPixel} disabled={loading || !pixelId} variant="default">
               <Zap className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
@@ -148,10 +167,10 @@ export default function FixWebPixel() {
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>Enter your Facebook Pixel ID: 864857281256627</li>
-            <li>Click "Create/Update Web Pixel" to set up the Web Pixel with correct settings</li>
-            <li>If it says "already exists", we'll handle updating the existing one</li>
-            <li>Check your store's browser console for the correct pixel ID</li>
+            <li>First click "Debug Web Pixel" to see where the issue is</li>
+            <li>If debug succeeds, then try "Create/Update Web Pixel"</li>
+            <li>Check the browser console and server logs for detailed info</li>
+            <li>Verify the result in your store's browser console</li>
           </ol>
         </CardContent>
       </Card>
