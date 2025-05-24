@@ -10,10 +10,16 @@ const corsHeaders = {
 }
 
 export async function POST(request: Request) {
+  console.log("📡 [Config API] =================================")
   console.log("📡 [Config API] Received config request")
+  console.log("📡 [Config API] Request URL:", request.url)
+  console.log("📡 [Config API] Request method:", request.method)
+  console.log("📡 [Config API] Request headers:", Object.fromEntries(request.headers.entries()))
 
   try {
     const body = await request.json()
+    console.log("📡 [Config API] Request body:", body)
+
     const { shop, source } = body
 
     console.log("🏪 [Config API] Request details:", { shop, source })
