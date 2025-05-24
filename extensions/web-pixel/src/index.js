@@ -126,41 +126,23 @@ register(({ configuration, analytics, browser }) => {
     }
   }
 
-  // Initialize with API settings or fallback
+  // Initialize with API settings - NO HARDCODED FALLBACKS
   const initializeWithConfig = async () => {
     const detectedDomain = detectShopDomain()
     console.log("🏪 [Web Pixel Gateway] Detected shop domain:", detectedDomain)
 
-    // Always try API first, even with unknown domain
+    // MUST get configuration from API - no hardcoded fallbacks for customer-facing app
     try {
       const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
       const configUrl = `${gatewayUrl}/config`
 
-      console.log("📡 [Web Pixel Gateway] Attempting API fetch regardless of domain detection...")
+      console.log("📡 [Web Pixel Gateway] Fetching configuration from API...")
 
-      // Try with detected domain first
-      let shopToTry = detectedDomain
-
-      // If domain is unknown, try some common patterns
+      // Use detected domain or fail gracefully
       if (detectedDomain === "unknown") {
-        // Try to get domain from referrer or any available context
-        if (browser && browser.document && browser.document.referrer) {
-          try {
-            const referrerUrl = new URL(browser.document.referrer)
-            if (referrerUrl.hostname.includes("myshopify.com")) {
-              shopToTry = referrerUrl.hostname
-              console.log("🔍 [Web Pixel Gateway] Using domain from referrer:", shopToTry)
-            }
-          } catch (e) {
-            console.log("⚠️ [Web Pixel Gateway] Could not parse referrer URL")
-          }
-        }
-
-        // If still unknown, try hardcoded shop domain for testing
-        if (shopToTry === "unknown") {
-          shopToTry = "test-rikki-new.myshopify.com"
-          console.log("🔄 [Web Pixel Gateway] Using test shop domain for API call:", shopToTry)
-        }
+        console.error("❌ [Web Pixel Gateway] Cannot detect shop domain - required for customer-facing app")
+        console.error("❌ [Web Pixel Gateway] This shop is not properly configured")
+        return // Exit without initializing - no hardcoded fallbacks
       }
 
       const response = await fetch(configUrl, {
@@ -170,16 +152,14 @@ register(({ configuration, analytics, browser }) => {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          shop: shopToTry,
+          shop: detectedDomain,
           source: "web-pixel-runtime",
-          detectedDomain: detectedDomain,
-          fallbackUsed: detectedDomain === "unknown",
+          customerFacing: true, // Flag to indicate this is customer-facing
         }),
         mode: "cors",
       })
 
       console.log("📡 [Web Pixel Gateway] API Response status:", response.status)
-      console.log("📡 [Web Pixel Gateway] API Response headers:", Object.fromEntries(response.headers.entries()))
 
       if (!response.ok) {
         throw new Error(`Config fetch failed: ${response.status} ${response.statusText}`)
@@ -190,22 +170,18 @@ register(({ configuration, analytics, browser }) => {
 
       if (apiConfig.success && apiConfig.pixelId) {
         console.log("🎯 [Web Pixel Gateway] ✅ USING API CONFIG - Pixel ID:", apiConfig.pixelId)
-        console.log("🎯 [Web Pixel Gateway] ✅ API SOURCE:", apiConfig.source || "api")
+        console.log("🎯 [Web Pixel Gateway] ✅ Shop:", apiConfig.shop)
         return initializeTracking(apiConfig.pixelId, gatewayUrl, true, "api")
       } else {
         throw new Error(`Invalid API response: ${JSON.stringify(apiConfig)}`)
       }
     } catch (error) {
       console.error("💥 [Web Pixel Gateway] API fetch failed:", error)
-      console.log("🔄 [Web Pixel Gateway] ❌ FALLING BACK TO HARDCODED CONFIG")
+      console.error("❌ [Web Pixel Gateway] Cannot initialize tracking without valid configuration")
+      console.error("❌ [Web Pixel Gateway] This shop needs to be configured in the admin panel")
 
-      // Use hardcoded fallback for your store
-      return initializeTracking(
-        "864857281256627",
-        "https://v0-node-js-serverless-api-lake.vercel.app/api/track",
-        true,
-        "fallback",
-      )
+      // NO HARDCODED FALLBACKS - customer must configure their shop properly
+      return
     }
   }
 
@@ -301,7 +277,7 @@ register(({ configuration, analytics, browser }) => {
           custom_data: {
             ...customData,
             shopify_source: true,
-            config_source: source, // Track whether this came from API or fallback
+            config_source: source,
             client_info: clientInfo,
             ...(debug && { shopify_event_data: shopifyEventData }),
           },
@@ -360,7 +336,7 @@ register(({ configuration, analytics, browser }) => {
         const fbEventName = eventMapping[name] || name
         let customData = {}
 
-        // Process event-specific data (same as before)
+        // Process event-specific data
         switch (name) {
           case "page_viewed":
             customData = {

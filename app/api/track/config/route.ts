@@ -61,23 +61,6 @@ export async function POST(request: Request) {
     if (!shopConfig) {
       console.log("❌ [Config API] No shop configuration found for:", cleanShop)
 
-      // Check if we have a default pixel configuration
-      const defaultPixelId = process.env.FACEBOOK_PIXEL_ID
-      if (defaultPixelId) {
-        console.log("🔄 [Config API] Using default pixel configuration")
-        return NextResponse.json(
-          {
-            success: true,
-            pixelId: defaultPixelId,
-            gatewayEnabled: true,
-            source: "default_env",
-            shop: cleanShop,
-            message: "Using default pixel configuration",
-          },
-          { headers: corsHeaders },
-        )
-      }
-
       return NextResponse.json(
         {
           success: false,
