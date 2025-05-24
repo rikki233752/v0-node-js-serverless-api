@@ -112,3 +112,56 @@ export function isValidShop(shop: string): boolean {
   const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
   return shopRegex.test(cleanShop)
 }
+
+/**
+ * Creates a Shopify Admin API client for a specific shop
+ */
+export async function shopifyAdmin(shop: string) {
+  const { getShopData } = await import("./db-auth")
+  const shopData = await getShopData(shop)
+
+  if (!shopData?.accessToken) {
+    throw new Error(`No access token found for shop: ${shop}`)
+  }
+
+  return {
+    async graphql(query: string, variables?: any) {
+      const response = await fetch(`https://${shop}/admin/api/2023-10/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopData.accessToken,
+        },
+        body: JSON.stringify({ query, variables }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`GraphQL request failed: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.errors) {
+        throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`)
+      }
+
+      return result.data
+    },
+  }
+}
+
+/**
+ * Creates a Shopify Admin client factory
+ */
+export function shopifyAdminClient() {
+  return {
+    async query(query: string, variables?: any, shop?: string) {
+      if (!shop) {
+        throw new Error("Shop parameter required for shopifyAdminClient")
+      }
+
+      const client = await shopifyAdmin(shop)
+      return client.graphql(query, variables)
+    },
+  }
+}
