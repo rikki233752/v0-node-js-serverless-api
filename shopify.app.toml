@@ -1,6 +1,6 @@
 # This file contains the configuration for your Shopify app.
 
-name = "Your App Name"
+name = "Facebook Pixel Gateway"
 client_id = "your-client-id"
 application_url = "https://your-app-url.com"
 embedded = true
@@ -16,11 +16,15 @@ dev_store_url = "your-dev-store.myshopify.com"
 
 [auth]
 redirect_urls = [
-  "https://your-app-url.com/auth/callback"
+  "https://your-app-url.com/api/auth/callback"
 ]
 
 [webhooks]
 api_version = "2023-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/api/webhooks/app/uninstalled"
 
 [pos]
 embedded = false
