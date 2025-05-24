@@ -1,8 +1,8 @@
-// Web Pixel Extension - Meta Conversions API Gateway Integration with Pixel Detection
+// Web Pixel Extension - Meta Conversions API Gateway Integration
 import { register } from "@shopify/web-pixels-extension"
 
 register(({ configuration, analytics, browser }) => {
-  console.log("🎯 [Web Pixel Gateway] Starting initialization with pixel detection...")
+  console.log("🎯 [Web Pixel Gateway] Starting initialization...")
 
   // Enhanced function to detect existing Facebook Pixels on the website
   const detectExistingPixels = () => {
@@ -34,11 +34,6 @@ register(({ configuration, analytics, browser }) => {
               }
             })
           }
-
-          // Look for Facebook Pixel script src
-          if (script.src && script.src.includes("connect.facebook.net")) {
-            console.log("🔍 [Pixel Detection] Found Facebook Pixel script:", script.src)
-          }
         })
       }
 
@@ -50,16 +45,6 @@ register(({ configuration, analytics, browser }) => {
         }
       }
 
-      // Method 4: Check for Facebook Pixel in browser object (Web Pixel context)
-      if (browser && browser.document) {
-        try {
-          // Try to access scripts through browser.document
-          console.log("🔍 [Pixel Detection] Checking browser.document for pixels...")
-        } catch (e) {
-          console.log("🔍 [Pixel Detection] Cannot access browser.document:", e.message)
-        }
-      }
-
       console.log("🎯 [Pixel Detection] Total detected pixels:", detectedPixels)
       return detectedPixels
     } catch (error) {
@@ -68,34 +53,29 @@ register(({ configuration, analytics, browser }) => {
     }
   }
 
-  // Enhanced function to detect shop domain
-  const detectShopDomain = () => {
+  // Get current page URL for shop identification
+  const getCurrentUrl = () => {
     try {
-      if (browser && browser.url && browser.url.hostname) {
-        return browser.url.hostname
+      if (browser && browser.url && browser.url.href) {
+        return browser.url.href
       }
       if (typeof window !== "undefined" && window.location) {
-        return window.location.hostname
+        return window.location.href
       }
       return "unknown"
     } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error detecting shop domain:", error)
+      console.error("💥 [Web Pixel Gateway] Error getting current URL:", error)
       return "unknown"
     }
   }
 
   // Initialize with pixel detection and smart configuration
   const initializeWithDetection = async () => {
-    const detectedDomain = detectShopDomain()
+    const currentUrl = getCurrentUrl()
     const detectedPixels = detectExistingPixels()
 
-    console.log("🏪 [Web Pixel Gateway] Detected shop domain:", detectedDomain)
+    console.log("🌐 [Web Pixel Gateway] Current URL:", currentUrl)
     console.log("🎯 [Web Pixel Gateway] Detected pixels:", detectedPixels)
-
-    if (detectedDomain === "unknown") {
-      console.error("❌ [Web Pixel Gateway] Cannot detect shop domain")
-      return
-    }
 
     try {
       const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
@@ -103,7 +83,7 @@ register(({ configuration, analytics, browser }) => {
 
       console.log("🔍 [Web Pixel Gateway] Sending detection data to API...")
 
-      // Send detection data to our API
+      // Send detection data to our API - let the server determine the shop
       const detectionResponse = await fetch(detectionUrl, {
         method: "POST",
         headers: {
@@ -111,10 +91,10 @@ register(({ configuration, analytics, browser }) => {
           Accept: "application/json",
         },
         body: JSON.stringify({
-          shop: detectedDomain,
+          currentUrl: currentUrl,
           detectedPixels: detectedPixels,
-          currentUrl: browser?.url?.href || "unknown",
-          source: "web-pixel-detection",
+          source: "web-pixel-runtime",
+          userAgent: browser?.navigator?.userAgent || "Unknown",
         }),
         mode: "cors",
       })
@@ -130,10 +110,10 @@ register(({ configuration, analytics, browser }) => {
 
       if (detectionData.success && detectionData.recommendedPixelId && detectionData.hasAccessToken) {
         console.log("🎯 [Web Pixel Gateway] ✅ USING SMART DETECTION")
+        console.log("   🏪 Shop:", detectionData.shop)
         console.log("   📍 Recommended Pixel:", detectionData.recommendedPixelId)
         console.log("   🔍 Detection Status:", detectionData.configurationStatus)
         console.log("   🎯 Match Status:", detectionData.matchStatus)
-        console.log("   💡 Recommendations:", detectionData.recommendations)
 
         return initializeTracking(
           detectionData.recommendedPixelId,
@@ -159,7 +139,6 @@ register(({ configuration, analytics, browser }) => {
     console.log("   📍 Pixel ID:", pixelId)
     console.log("   🔗 Gateway URL:", gatewayUrl)
     console.log("   📊 Source:", source)
-    console.log("   🐛 Debug:", debug)
 
     // Helper function to safely get cookies
     const getCookies = () => {
@@ -192,12 +171,11 @@ register(({ configuration, analytics, browser }) => {
     // Helper function to get client information
     const getClientInfo = () => {
       try {
-        let url = "https://unknown.com"
+        const url = getCurrentUrl()
         let referrer = ""
 
-        if (browser) {
-          if (browser.url && browser.url.href) url = browser.url.href
-          if (browser.document && browser.document.referrer) referrer = browser.document.referrer
+        if (browser && browser.document && browser.document.referrer) {
+          referrer = browser.document.referrer
         }
 
         return {
@@ -212,7 +190,7 @@ register(({ configuration, analytics, browser }) => {
         return {
           user_agent: "Unknown",
           language: "en",
-          url: "https://unknown.com",
+          url: getCurrentUrl(),
           referrer: "",
           timestamp: new Date().toISOString(),
         }
@@ -251,10 +229,7 @@ register(({ configuration, analytics, browser }) => {
           },
         }
 
-        console.log(
-          `📤 [Web Pixel Gateway] Sending ${eventName} event to Pixel ${pixelId} (source: ${source}):`,
-          eventData,
-        )
+        console.log(`📤 [Web Pixel Gateway] Sending ${eventName} event:`, eventData)
 
         if (typeof fetch !== "undefined") {
           fetch(gatewayUrl, {
@@ -264,9 +239,7 @@ register(({ configuration, analytics, browser }) => {
             mode: "no-cors",
           })
             .then(() => {
-              console.log(
-                `✅ [Web Pixel Gateway] Successfully sent ${eventName} event to Pixel ${pixelId} (source: ${source})`,
-              )
+              console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
             })
             .catch((error) => {
               console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
@@ -299,7 +272,7 @@ register(({ configuration, analytics, browser }) => {
     analytics.subscribe("all_events", (event) => {
       try {
         const { name, data } = event
-        console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`, { name, data })
+        console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`)
 
         const fbEventName = eventMapping[name] || name
         let customData = {}
@@ -370,9 +343,7 @@ register(({ configuration, analytics, browser }) => {
       console.error("💥 [Web Pixel Gateway] Error sending initial PageView:", error)
     }
 
-    console.log(
-      `🎉 [Web Pixel Gateway] Extension fully initialized and ready to track events! (Config source: ${source})`,
-    )
+    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized! (Config source: ${source})`)
   }
 
   // Start initialization with smart detection

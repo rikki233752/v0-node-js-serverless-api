@@ -58,21 +58,31 @@ export async function GET(request: NextRequest) {
 
     console.log("💾 Shop data stored successfully")
 
+    // Clean and store the shop domain properly
+    const cleanShopDomain = shop
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .toLowerCase()
+
+    console.log("🏪 Processing shop domain:", { original: shop, cleaned: cleanShopDomain })
+
     // Auto-create shop configuration entry
     try {
       await prisma.shopConfig.upsert({
-        where: { shopDomain: shop },
+        where: { shopDomain: cleanShopDomain },
         update: {
-          // Just update the timestamp if it exists
+          // Update existing config if shop reinstalls
+          gatewayEnabled: false, // Will be enabled when pixel is configured
           updatedAt: new Date(),
         },
         create: {
-          shopDomain: shop,
+          shopDomain: cleanShopDomain,
           gatewayEnabled: false, // Will be enabled when pixel is configured
-          // pixelConfigId will be set when admin configures the pixel
+          pixelConfigId: null, // Will be set when admin configures the pixel
         },
       })
-      console.log("✅ [OAuth] Shop config entry created/updated for:", shop)
+      console.log("✅ [OAuth] Shop config entry created/updated for:", cleanShopDomain)
     } catch (error) {
       console.error("⚠️ [OAuth] Failed to create shop config entry:", error)
       // Don't fail the OAuth flow for this
