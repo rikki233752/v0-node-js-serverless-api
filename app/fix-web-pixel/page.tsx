@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, Target, ExternalLink } from "lucide-react"
+import { CheckCircle, AlertCircle, Target, ExternalLink, RefreshCw } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
@@ -15,7 +15,7 @@ export default function FixWebPixel() {
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
-  const getRealWebPixel = async () => {
+  const handleAction = async (endpoint: string, buttonText: string) => {
     if (!pixelId) {
       alert("Please enter your Facebook Pixel ID")
       return
@@ -23,7 +23,7 @@ export default function FixWebPixel() {
 
     setLoading(true)
     try {
-      const response = await fetch("/api/shopify/get-real-web-pixel", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -34,14 +34,17 @@ export default function FixWebPixel() {
 
       const data = await response.json()
       setResults(data)
-      console.log("Get real Web Pixel result:", data)
+      console.log(`${buttonText} result:`, data)
     } catch (error) {
-      console.error("Get real Web Pixel failed:", error)
-      setResults({ success: false, error: "Get real Web Pixel failed", details: error.message })
+      console.error(`${buttonText} failed:`, error)
+      setResults({ success: false, error: `${buttonText} failed`, details: error.message })
     } finally {
       setLoading(false)
     }
   }
+
+  const getRealWebPixel = () => handleAction("/api/shopify/get-real-web-pixel", "Get & Update Web Pixel")
+  const recreateWebPixel = () => handleAction("/api/shopify/recreate-web-pixel", "Recreate Web Pixel")
 
   const openShopifyAdmin = () => {
     window.open(`https://${shop}/admin/settings/customer_events`, "_blank")
@@ -56,15 +59,15 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Direct Web Pixel Query</CardTitle>
+          <CardTitle>Current Issue</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Simple & Reliable</AlertTitle>
+            <AlertTitle>Configuration Not Received</AlertTitle>
             <AlertDescription>
-              Uses the direct GraphQL query to fetch your actual Web Pixel ID, then updates it with the correct Facebook
-              Pixel ID settings.
+              The Web Pixel Extension is not receiving settings from Shopify. Console shows: "No configuration.settings
+              found!" This means we need to recreate the Web Pixel with proper settings.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -101,16 +104,29 @@ export default function FixWebPixel() {
           <CardTitle>Actions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button onClick={getRealWebPixel} disabled={loading || !pixelId} variant="default">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Button onClick={getRealWebPixel} disabled={loading || !pixelId} variant="outline">
               <Target className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Get & Update Web Pixel
+            </Button>
+            <Button onClick={recreateWebPixel} disabled={loading || !pixelId} variant="default">
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Recreate Web Pixel
             </Button>
             <Button onClick={openShopifyAdmin} variant="outline">
               <ExternalLink className="h-4 w-4 mr-2" />
               Open Shopify Admin
             </Button>
           </div>
+
+          <Alert>
+            <RefreshCw className="h-4 w-4" />
+            <AlertTitle>Recommended Action</AlertTitle>
+            <AlertDescription>
+              Click "Recreate Web Pixel" to delete the current Web Pixel and create a new one with proper settings. This
+              should fix the configuration issue.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 
@@ -134,18 +150,15 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>What This Does</CardTitle>
+          <CardTitle>Next Steps After Recreating</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>
-              Runs the simple GraphQL query:{" "}
-              <code className="bg-muted px-1 rounded">webPixel &#123; id settings &#125;</code>
-            </li>
-            <li>Gets the real Web Pixel ID from your Shopify store</li>
-            <li>Shows you the current settings (probably has "default-account")</li>
-            <li>Updates the Web Pixel with your correct Facebook Pixel ID (864857281256627)</li>
-            <li>Your Web Pixel will then track events with the correct pixel ID</li>
+            <li>Wait 2-3 minutes for Shopify to deploy the new Web Pixel</li>
+            <li>Hard refresh your browser (Ctrl+Shift+R or Cmd+Shift+R)</li>
+            <li>Check console logs - should show settings being received</li>
+            <li>Look for: "✅ [Web Pixel Gateway] Using Pixel ID: 864857281256627"</li>
+            <li>Test add to cart to verify tracking works</li>
           </ol>
         </CardContent>
       </Card>
