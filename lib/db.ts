@@ -59,40 +59,20 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma
 // Helper function to get shop access token from database
 export async function getShopAccessToken(shop: string): Promise<string | null> {
   try {
+    console.log(`Looking up access token for shop: ${shop}`)
+
     const result = await executeWithRetry(async () => {
-      // Try multiple possible table names based on our schema
-      try {
-        // First try shopAuth table (from lib/db-auth.ts)
-        return await prisma.shopAuth.findUnique({
-          where: { shop },
-          select: { accessToken: true },
-        })
-      } catch (error) {
-        // If shopAuth doesn't exist, try shopifyStore
-        return await prisma.shopifyStore.findUnique({
-          where: { shop },
-          select: { accessToken: true },
-        })
-      }
+      // Use the correct table name: ShopAuth (capital S, capital A)
+      return await prisma.shopAuth.findUnique({
+        where: { shop },
+        select: { accessToken: true },
+      })
     })
 
+    console.log(`Access token found for ${shop}:`, !!result?.accessToken)
     return result?.accessToken || null
   } catch (error) {
     console.error(`Failed to get access token for shop ${shop}:`, error)
-
-    // Debug: Let's see what tables exist
-    console.log("Available tables in database:")
-    try {
-      const tables = await prisma.$queryRaw`
-        SELECT table_name 
-        FROM information_schema.tables 
-        WHERE table_schema = 'public'
-      `
-      console.log("Tables:", tables)
-    } catch (e) {
-      console.log("Could not list tables:", e)
-    }
-
     return null
   }
 }
