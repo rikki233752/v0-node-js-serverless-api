@@ -7,31 +7,30 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, RefreshCw, TestTube } from "lucide-react"
+import { CheckCircle, AlertCircle, TestTube, Zap } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
   const [pixelId, setPixelId] = useState("864857281256627")
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [webPixels, setWebPixels] = useState<any>(null)
 
-  const testGraphQL = async () => {
+  const exploreGraphQL = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/shopify/list-web-pixels-graphql?shop=${encodeURIComponent(shop)}`)
+      const response = await fetch(`/api/shopify/explore-graphql?shop=${encodeURIComponent(shop)}`)
       const data = await response.json()
       setResults(data)
-      console.log("GraphQL test result:", data)
+      console.log("GraphQL exploration result:", data)
     } catch (error) {
-      console.error("GraphQL test failed:", error)
-      setResults({ success: false, error: "GraphQL test failed" })
+      console.error("GraphQL exploration failed:", error)
+      setResults({ success: false, error: "GraphQL exploration failed" })
     } finally {
       setLoading(false)
     }
   }
 
-  const testCreateWebPixel = async () => {
+  const createOrUpdateWebPixel = async () => {
     if (!pixelId) {
       alert("Please enter your Facebook Pixel ID")
       return
@@ -39,7 +38,7 @@ export default function FixWebPixel() {
 
     setLoading(true)
     try {
-      const response = await fetch("/api/shopify/test-web-pixel-create", {
+      const response = await fetch("/api/shopify/create-or-update-web-pixel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -49,25 +48,10 @@ export default function FixWebPixel() {
       })
       const data = await response.json()
       setResults(data)
-      console.log("Create test result:", data)
+      console.log("Create/Update result:", data)
     } catch (error) {
-      console.error("Create test failed:", error)
-      setResults({ success: false, error: "Create test failed" })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const checkWebPixels = async () => {
-    setLoading(true)
-    try {
-      const response = await fetch(`/api/shopify/list-web-pixels?shop=${encodeURIComponent(shop)}`)
-      const data = await response.json()
-      setWebPixels(data)
-      console.log("Web Pixels check result:", data)
-    } catch (error) {
-      console.error("Web Pixels check failed:", error)
-      setWebPixels({ success: false, error: "Failed to check Web Pixels" })
+      console.error("Create/Update failed:", error)
+      setResults({ success: false, error: "Create/Update failed" })
     } finally {
       setLoading(false)
     }
@@ -77,20 +61,20 @@ export default function FixWebPixel() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold">Fix Web Pixel Configuration</h1>
-        <p className="text-muted-foreground mt-2">Debug and fix your Web Pixel setup</p>
+        <p className="text-muted-foreground mt-2">Create or update your Web Pixel with the correct settings</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Current Status</CardTitle>
+          <CardTitle>Current Approach</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Web Pixels API Issue</AlertTitle>
+            <AlertTitle>New Strategy</AlertTitle>
             <AlertDescription>
-              The REST API for Web Pixels returned 404. Let's test the GraphQL API and try creating a Web Pixel
-              directly.
+              Since listing Web Pixels is complex, we'll try to create a Web Pixel directly. If one already exists,
+              Shopify will tell us and we can handle it accordingly.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -124,33 +108,19 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Debug & Test</CardTitle>
+          <CardTitle>Actions</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Button onClick={testGraphQL} disabled={loading} variant="outline">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button onClick={exploreGraphQL} disabled={loading} variant="outline">
               <TestTube className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Test GraphQL API
+              Explore GraphQL Schema
             </Button>
-            <Button onClick={testCreateWebPixel} disabled={loading || !pixelId} variant="default">
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Create Web Pixel
-            </Button>
-            <Button onClick={checkWebPixels} disabled={loading} variant="secondary">
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Try REST API
+            <Button onClick={createOrUpdateWebPixel} disabled={loading || !pixelId} variant="default">
+              <Zap className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Create/Update Web Pixel
             </Button>
           </div>
-
-          {webPixels && (
-            <Alert variant={webPixels.success ? "default" : "destructive"}>
-              <CheckCircle className="h-4 w-4" />
-              <AlertTitle>REST API Result</AlertTitle>
-              <AlertDescription>
-                {webPixels.success ? `Success: ${webPixels.message}` : `Error: ${webPixels.error}`}
-              </AlertDescription>
-            </Alert>
-          )}
         </CardContent>
       </Card>
 
@@ -167,7 +137,7 @@ export default function FixWebPixel() {
                 <AlertDescription>{results.message}</AlertDescription>
               </Alert>
             )}
-            <Textarea value={JSON.stringify(results, null, 2)} readOnly className="min-h-[200px] font-mono text-sm" />
+            <Textarea value={JSON.stringify(results, null, 2)} readOnly className="min-h-[300px] font-mono text-sm" />
           </CardContent>
         </Card>
       )}
@@ -178,10 +148,10 @@ export default function FixWebPixel() {
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>Click "Test GraphQL API" to verify API connection</li>
             <li>Enter your Facebook Pixel ID: 864857281256627</li>
-            <li>Click "Create Web Pixel" to create/update the Web Pixel</li>
-            <li>Check your store's browser console for pixel detection</li>
+            <li>Click "Create/Update Web Pixel" to set up the Web Pixel with correct settings</li>
+            <li>If it says "already exists", we'll handle updating the existing one</li>
+            <li>Check your store's browser console for the correct pixel ID</li>
           </ol>
         </CardContent>
       </Card>
