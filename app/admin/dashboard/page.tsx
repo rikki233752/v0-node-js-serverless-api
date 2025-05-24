@@ -64,7 +64,9 @@ export default function AdminDashboard() {
   // Active tab state
   const [activeTab, setActiveTab] = useState("pixels")
 
+  // Pixel detection state
   const [shopDomain, setShopDomain] = useState("")
+  const [manualPixelId, setManualPixelId] = useState("")
   const [detectLoading, setDetectLoading] = useState(false)
   const [detectionResult, setDetectionResult] = useState(null)
 
@@ -285,17 +287,16 @@ export default function AdminDashboard() {
     sessionStorage.removeItem("authHeader")
   }
 
+  // Handle pixel detection
   const handleDetectPixel = async () => {
     setDetectLoading(true)
     setDetectionResult(null)
 
     try {
-      const auth = sessionStorage.getItem("authHeader") || ""
       const response = await fetch("/api/admin/detect-and-link-pixel", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: auth,
         },
         body: JSON.stringify({
           shop: shopDomain,
@@ -305,6 +306,7 @@ export default function AdminDashboard() {
       })
 
       const data = await response.json()
+      console.log("Detection response:", data)
       setDetectionResult(data)
 
       if (data.success) {
@@ -312,9 +314,56 @@ export default function AdminDashboard() {
         fetchPixels()
       }
     } catch (error) {
+      console.error("Detection error:", error)
       setDetectionResult({
         success: false,
-        message: "Error detecting pixel: " + error.message,
+        error: "Error detecting pixel: " + (error.message || "Unknown error"),
+      })
+    } finally {
+      setDetectLoading(false)
+    }
+  }
+
+  // Handle manual pixel linking
+  const handleManualLinkPixel = async () => {
+    if (!shopDomain || !manualPixelId) {
+      setDetectionResult({
+        success: false,
+        error: "Shop domain and Pixel ID are required",
+      })
+      return
+    }
+
+    setDetectLoading(true)
+    setDetectionResult(null)
+
+    try {
+      const response = await fetch("/api/admin/manual-link-pixel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shop: shopDomain,
+          pixelId: manualPixelId,
+          username: "admin",
+          password: "password",
+        }),
+      })
+
+      const data = await response.json()
+      console.log("Manual linking response:", data)
+      setDetectionResult(data)
+
+      if (data.success) {
+        // Refresh pixels list
+        fetchPixels()
+      }
+    } catch (error) {
+      console.error("Manual linking error:", error)
+      setDetectionResult({
+        success: false,
+        error: "Error linking pixel: " + (error.message || "Unknown error"),
       })
     } finally {
       setDetectLoading(false)
@@ -639,26 +688,65 @@ export default function AdminDashboard() {
               <CardDescription>Detect and link Facebook Pixels for shops</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="shopDomain">Shop Domain</Label>
-                  <Input
-                    id="shopDomain"
-                    placeholder="test-rikki-new.myshopify.com"
-                    value={shopDomain}
-                    onChange={(e) => setShopDomain(e.target.value)}
-                  />
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="shopDomain">Shop Domain</Label>
+                    <Input
+                      id="shopDomain"
+                      placeholder="test-rikki-new.myshopify.com"
+                      value={shopDomain}
+                      onChange={(e) => setShopDomain(e.target.value)}
+                    />
+                  </div>
+                  <Button onClick={handleDetectPixel} disabled={detectLoading || !shopDomain} className="w-full">
+                    {detectLoading ? "Detecting..." : "Detect and Link Pixel"}
+                  </Button>
                 </div>
-                <Button onClick={handleDetectPixel} disabled={detectLoading || !shopDomain} className="w-full">
-                  {detectLoading ? "Detecting..." : "Detect and Link Pixel"}
-                </Button>
+
+                <div className="border-t pt-4">
+                  <h3 className="text-lg font-medium mb-2">Manual Pixel Linking</h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    If automatic detection fails, you can manually link a known pixel ID
+                  </p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="manualPixelId">Facebook Pixel ID</Label>
+                      <Input
+                        id="manualPixelId"
+                        placeholder="584928510540140"
+                        value={manualPixelId}
+                        onChange={(e) => setManualPixelId(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      onClick={handleManualLinkPixel}
+                      disabled={detectLoading || !shopDomain || !manualPixelId}
+                      className="w-full"
+                      variant="outline"
+                    >
+                      {detectLoading ? "Linking..." : "Manually Link Pixel"}
+                    </Button>
+                  </div>
+                </div>
+
                 {detectionResult && (
-                  <Alert className={detectionResult.success ? "border-green-500" : "border-red-500"}>
+                  <Alert
+                    className={`mt-4 ${
+                      detectionResult.success ? "border-green-500 bg-green-50" : "border-red-500 bg-red-50"
+                    }`}
+                  >
                     <AlertDescription>
-                      {detectionResult.message}
+                      <div className="font-medium">{detectionResult.success ? "✅ Success" : "❌ Error"}</div>
+                      <div className="mt-1">{detectionResult.message || detectionResult.error}</div>
                       {detectionResult.detectedPixel && (
                         <div className="mt-2">
                           <strong>Detected Pixel:</strong> {detectionResult.detectedPixel}
+                        </div>
+                      )}
+                      {detectionResult.pixelId && (
+                        <div className="mt-2">
+                          <strong>Linked Pixel:</strong> {detectionResult.pixelId}
                         </div>
                       )}
                     </AlertDescription>
