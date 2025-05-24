@@ -3,6 +3,28 @@ import { register } from "@shopify/web-pixels-extension"
 
 register(({ configuration, analytics, browser }) => {
   console.log("🎯 [Web Pixel Gateway] Starting initialization...")
+  console.log("🔍 [Web Pixel Gateway] Available objects:", {
+    configuration: !!configuration,
+    analytics: !!analytics,
+    browser: !!browser,
+    browserKeys: browser ? Object.keys(browser) : null,
+  })
+
+  // Get current page URL for shop identification
+  const getCurrentUrl = () => {
+    try {
+      if (browser && browser.url && browser.url.href) {
+        return browser.url.href
+      }
+      if (typeof window !== "undefined" && window.location) {
+        return window.location.href
+      }
+      return "unknown"
+    } catch (error) {
+      console.error("💥 [Web Pixel Gateway] Error getting current URL:", error)
+      return "unknown"
+    }
+  }
 
   // Enhanced function to detect existing Facebook Pixels on the website
   const detectExistingPixels = () => {
@@ -19,7 +41,7 @@ register(({ configuration, analytics, browser }) => {
       if (typeof document !== "undefined") {
         const scripts = document.querySelectorAll("script")
         scripts.forEach((script) => {
-          const content = script.textContent || script.innerHTML
+          const content = script.textContent || script.innerHTML || ""
 
           // Look for fbq('init', 'PIXEL_ID') patterns
           const initMatches = content.match(/fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/g)
@@ -45,6 +67,22 @@ register(({ configuration, analytics, browser }) => {
         }
       }
 
+      // Method 4: Check for pixel ID in configuration
+      if (configuration && configuration.accountID) {
+        console.log("🔍 [Pixel Detection] Found pixel ID in configuration.accountID:", configuration.accountID)
+        if (!detectedPixels.includes(configuration.accountID)) {
+          detectedPixels.push(configuration.accountID)
+        }
+      }
+
+      // Method 5: Check for pixel ID in analytics
+      if (analytics && analytics.meta && analytics.meta.pixelId) {
+        console.log("🔍 [Pixel Detection] Found pixel ID in analytics.meta.pixelId:", analytics.meta.pixelId)
+        if (!detectedPixels.includes(analytics.meta.pixelId)) {
+          detectedPixels.push(analytics.meta.pixelId)
+        }
+      }
+
       console.log("🎯 [Pixel Detection] Total detected pixels:", detectedPixels)
       return detectedPixels
     } catch (error) {
@@ -53,19 +91,48 @@ register(({ configuration, analytics, browser }) => {
     }
   }
 
-  // Get current page URL for shop identification
-  const getCurrentUrl = () => {
+  // Send debug data to our API
+  const sendDebugData = async () => {
     try {
-      if (browser && browser.url && browser.url.href) {
-        return browser.url.href
+      const currentUrl = getCurrentUrl()
+      const detectedPixels = detectExistingPixels()
+
+      const debugData = {
+        currentUrl,
+        detectedPixels,
+        source: "web-pixel-runtime",
+        userAgent: browser?.navigator?.userAgent || "Unknown",
+        configAccountId: configuration?.accountID || null,
+        configData: configuration || null,
+        analyticsData: analytics?.meta || null,
+        timestamp: new Date().toISOString(),
       }
-      if (typeof window !== "undefined" && window.location) {
-        return window.location.href
-      }
-      return "unknown"
+
+      console.log("📡 [Web Pixel Gateway] Sending debug data to API...", debugData)
+
+      const debugUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/debug/web-pixel-data"
+
+      fetch(debugUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(debugData),
+        mode: "cors",
+      })
+        .then((response) => {
+          console.log("📡 [Web Pixel Gateway] Debug API Response status:", response.status)
+          return response.json()
+        })
+        .then((data) => {
+          console.log("✅ [Web Pixel Gateway] Debug data sent successfully:", data)
+        })
+        .catch((error) => {
+          console.error("💥 [Web Pixel Gateway] Error sending debug data:", error)
+        })
     } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error getting current URL:", error)
-      return "unknown"
+      console.error("💥 [Web Pixel Gateway] Error preparing debug data:", error)
     }
   }
 
@@ -74,6 +141,12 @@ register(({ configuration, analytics, browser }) => {
     const currentUrl = getCurrentUrl()
     const detectedPixels = detectExistingPixels()
 
+    // Send debug data first
+    await sendDebugData()
+
+    // Log all available configuration data
+    console.log("🔧 [Web Pixel Gateway] Configuration object:", configuration)
+    console.log("🔧 [Web Pixel Gateway] Analytics object:", analytics)
     console.log("🌐 [Web Pixel Gateway] Current URL:", currentUrl)
     console.log("🎯 [Web Pixel Gateway] Detected pixels:", detectedPixels)
 
@@ -81,7 +154,7 @@ register(({ configuration, analytics, browser }) => {
       const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
       const detectionUrl = `${gatewayUrl.replace("/track", "/detect-pixel")}`
 
-      console.log("🔍 [Web Pixel Gateway] Sending detection data to API...")
+      console.log("📡 [Web Pixel Gateway] Sending detection data to API...")
 
       // Send detection data to our API - let the server determine the shop
       const detectionResponse = await fetch(detectionUrl, {
@@ -95,11 +168,15 @@ register(({ configuration, analytics, browser }) => {
           detectedPixels: detectedPixels,
           source: "web-pixel-runtime",
           userAgent: browser?.navigator?.userAgent || "Unknown",
+          // Include configuration data
+          configAccountId: configuration?.accountID || null,
+          configData: configuration || null,
+          analyticsData: analytics?.meta || null,
         }),
         mode: "cors",
       })
 
-      console.log("🔍 [Web Pixel Gateway] Detection API Response status:", detectionResponse.status)
+      console.log("📡 [Web Pixel Gateway] API Response status:", detectionResponse.status)
 
       if (!detectionResponse.ok) {
         throw new Error(`Detection failed: ${detectionResponse.status}`)
