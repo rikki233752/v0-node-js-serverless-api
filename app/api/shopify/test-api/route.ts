@@ -18,74 +18,130 @@ export async function GET(request: Request) {
 
     console.log("Testing Shopify API access for shop:", shop)
 
-    // Test basic shop access
-    const shopResponse = await fetch(`https://${shop}/admin/api/2023-10/shop.json`, {
-      headers: {
-        "X-Shopify-Access-Token": shopData.accessToken,
-      },
-    })
-
-    console.log("Shop API test - Status:", shopResponse.status)
-    console.log("Shop API test - Headers:", Object.fromEntries(shopResponse.headers.entries()))
-
-    const shopResponseText = await shopResponse.text()
-    console.log("Shop API test - Response text:", shopResponseText)
-
-    let shopResult
-    try {
-      shopResult = JSON.parse(shopResponseText)
-    } catch (parseError) {
-      return NextResponse.json({
-        success: false,
-        test: "shop_api",
-        status: shopResponse.status,
-        error: "Failed to parse shop API response",
-        responseText: shopResponseText,
-        parseError: parseError.message,
-      })
+    const results = {
+      shop: shop,
+      scopes: shopData.scopes,
+      accessTokenLength: shopData.accessToken.length,
+      tests: {},
     }
 
-    // Test pixels API access
-    const pixelsResponse = await fetch(`https://${shop}/admin/api/2023-10/pixels.json`, {
-      headers: {
-        "X-Shopify-Access-Token": shopData.accessToken,
-      },
-    })
-
-    console.log("Pixels API test - Status:", pixelsResponse.status)
-    console.log("Pixels API test - Headers:", Object.fromEntries(pixelsResponse.headers.entries()))
-
-    const pixelsResponseText = await pixelsResponse.text()
-    console.log("Pixels API test - Response text:", pixelsResponseText)
-
-    let pixelsResult
+    // Test 1: Basic shop access
     try {
-      pixelsResult = JSON.parse(pixelsResponseText)
-    } catch (parseError) {
-      return NextResponse.json({
-        success: false,
-        test: "pixels_api",
-        status: pixelsResponse.status,
-        error: "Failed to parse pixels API response",
-        responseText: pixelsResponseText,
-        parseError: parseError.message,
+      const shopResponse = await fetch(`https://${shop}/admin/api/2023-10/shop.json`, {
+        headers: {
+          "X-Shopify-Access-Token": shopData.accessToken,
+        },
       })
+
+      console.log("Shop API test - Status:", shopResponse.status)
+
+      const shopResponseText = await shopResponse.text()
+      console.log("Shop API test - Response length:", shopResponseText.length)
+
+      results.tests.shopApi = {
+        status: shopResponse.status,
+        success: shopResponse.ok,
+        responseLength: shopResponseText.length,
+        hasContent: shopResponseText.trim() !== "",
+      }
+
+      if (shopResponse.ok && shopResponseText.trim() !== "") {
+        try {
+          const shopResult = JSON.parse(shopResponseText)
+          results.tests.shopApi.data = {
+            name: shopResult.shop?.name,
+            domain: shopResult.shop?.domain,
+            plan: shopResult.shop?.plan_name,
+          }
+        } catch (parseError) {
+          results.tests.shopApi.parseError = parseError.message
+          results.tests.shopApi.responsePreview = shopResponseText.substring(0, 200)
+        }
+      } else {
+        results.tests.shopApi.errorText = shopResponseText.substring(0, 200)
+      }
+    } catch (error) {
+      results.tests.shopApi = {
+        error: error.message,
+        success: false,
+      }
+    }
+
+    // Test 2: Pixels API with multiple versions
+    const apiVersions = ["2023-10", "2023-07", "2023-04", "2023-01"]
+    results.tests.pixelsApi = {}
+
+    for (const version of apiVersions) {
+      try {
+        const pixelsResponse = await fetch(`https://${shop}/admin/api/${version}/pixels.json`, {
+          headers: {
+            "X-Shopify-Access-Token": shopData.accessToken,
+          },
+        })
+
+        const pixelsResponseText = await pixelsResponse.text()
+
+        results.tests.pixelsApi[version] = {
+          status: pixelsResponse.status,
+          success: pixelsResponse.ok,
+          responseLength: pixelsResponseText.length,
+          hasContent: pixelsResponseText.trim() !== "",
+        }
+
+        if (pixelsResponse.ok && pixelsResponseText.trim() !== "") {
+          try {
+            const pixelsResult = JSON.parse(pixelsResponseText)
+            results.tests.pixelsApi[version].pixelCount = pixelsResult.pixels?.length || 0
+            results.tests.pixelsApi[version].pixels =
+              pixelsResult.pixels?.map((p) => ({
+                id: p.id,
+                name: p.name,
+                status: p.status,
+              })) || []
+          } catch (parseError) {
+            results.tests.pixelsApi[version].parseError = parseError.message
+            results.tests.pixelsApi[version].responsePreview = pixelsResponseText.substring(0, 200)
+          }
+        } else {
+          results.tests.pixelsApi[version].errorText = pixelsResponseText.substring(0, 200)
+        }
+      } catch (error) {
+        results.tests.pixelsApi[version] = {
+          error: error.message,
+          success: false,
+        }
+      }
+    }
+
+    // Test 3: Check if any pixels API version works
+    const workingPixelsApi = Object.entries(results.tests.pixelsApi).find(([version, test]) => test.success)
+    results.pixelsApiAvailable = !!workingPixelsApi
+    results.workingPixelsApiVersion = workingPixelsApi?.[0]
+
+    // Test 4: Network connectivity test
+    try {
+      const connectivityTest = await fetch(`https://${shop}/admin/api/2023-10/shop.json`, {
+        method: "HEAD",
+        headers: {
+          "X-Shopify-Access-Token": shopData.accessToken,
+        },
+      })
+
+      results.tests.connectivity = {
+        status: connectivityTest.status,
+        success: connectivityTest.ok,
+        headers: Object.fromEntries(connectivityTest.headers.entries()),
+      }
+    } catch (error) {
+      results.tests.connectivity = {
+        error: error.message,
+        success: false,
+      }
     }
 
     return NextResponse.json({
       success: true,
-      shopApi: {
-        status: shopResponse.status,
-        success: shopResponse.ok,
-        data: shopResult,
-      },
-      pixelsApi: {
-        status: pixelsResponse.status,
-        success: pixelsResponse.ok,
-        data: pixelsResult,
-      },
-      scopes: shopData.scopes,
-      accessTokenLength: shopData.accessToken.length,
+      ...results,
     })
   } catch (error) {
     console.error("Error testing Shopify API:", error)
