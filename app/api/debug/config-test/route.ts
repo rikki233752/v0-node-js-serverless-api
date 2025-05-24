@@ -18,8 +18,9 @@ export async function GET(request: Request) {
     // Check if tables exist and have data
     const pixelCount = await prisma.pixelConfig.count()
     const shopCount = await prisma.shopConfig.count()
+    const eventCount = await prisma.eventLog.count()
 
-    console.log("📊 [Debug Config] Table counts:", { pixelCount, shopCount })
+    console.log("📊 [Debug Config] Table counts:", { pixelCount, shopCount, eventCount })
 
     // Get sample data
     const samplePixels = await prisma.pixelConfig.findMany({ take: 3 })
@@ -41,6 +42,7 @@ export async function GET(request: Request) {
           connected: true,
           pixelCount,
           shopCount,
+          eventCount,
           samplePixels: samplePixels.map((p) => ({ id: p.id, pixelId: p.pixelId, name: p.name })),
           sampleShops: sampleShops.map((s) => ({ id: s.id, shopDomain: s.shopDomain, pixelConfigId: s.pixelConfigId })),
         },
