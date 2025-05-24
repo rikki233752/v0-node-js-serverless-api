@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, Search, Loader2 } from "lucide-react"
+import { CheckCircle, AlertCircle, Search, Loader2, Info } from "lucide-react"
 
 export default function PixelDetectorPage() {
   const [url, setUrl] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState("")
 
   const detectPixel = async () => {
     if (!url) {
@@ -20,7 +20,7 @@ export default function PixelDetectorPage() {
     }
 
     setIsLoading(true)
-    setError(null)
+    setError("")
     setResult(null)
 
     try {
@@ -59,6 +59,7 @@ export default function PixelDetectorPage() {
               placeholder="Enter website URL (e.g., example.com)"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && detectPixel()}
               className="flex-1"
             />
             <Button onClick={detectPixel} disabled={isLoading}>
@@ -96,7 +97,7 @@ export default function PixelDetectorPage() {
                     ? `We detected ${result.pixelsFound} Facebook Pixel${
                         result.pixelsFound > 1 ? "s" : ""
                       } on ${result.url}`
-                    : `We couldn't find any Facebook Pixels on ${result.url}`}
+                    : `We couldn't find any Facebook Pixels on ${result.url}. The pixel might be loaded dynamically or through a third-party service.`}
                 </AlertDescription>
               </Alert>
 
@@ -104,14 +105,30 @@ export default function PixelDetectorPage() {
                 <div className="bg-gray-50 p-4 rounded-md">
                   <h3 className="font-medium mb-2">Detected Pixel IDs:</h3>
                   <ul className="space-y-2">
-                    {result.detectedPixels.map((pixelId: string, index: number) => (
+                    {result.detectedPixels.map((pixelId, index) => (
                       <li key={index} className="flex items-center">
                         <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">{pixelId}</code>
+                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">{pixelId}</code>
                       </li>
                     ))}
                   </ul>
                 </div>
+              )}
+
+              {result.pixelsFound === 0 && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Possible Reasons</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc list-inside mt-2 space-y-1">
+                      <li>The pixel is loaded dynamically after page load</li>
+                      <li>The pixel is implemented server-side</li>
+                      <li>The pixel is loaded through Google Tag Manager or similar</li>
+                      <li>The website blocks automated scanning</li>
+                      <li>The pixel code is heavily obfuscated</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
               )}
             </div>
           )}
@@ -119,11 +136,11 @@ export default function PixelDetectorPage() {
           <div className="text-sm text-gray-500 mt-4">
             <p>
               <strong>How it works:</strong> This tool scans the HTML of the provided website for Facebook Pixel code
-              patterns and extracts the Pixel IDs.
+              patterns including fbq init, script URLs, data attributes, and more.
             </p>
             <p className="mt-2">
-              <strong>Note:</strong> Some websites may block automated scanning or use techniques that prevent pixel
-              detection.
+              <strong>Note:</strong> Some websites load pixels dynamically or use server-side tracking which cannot be
+              detected by this tool.
             </p>
           </div>
         </CardContent>

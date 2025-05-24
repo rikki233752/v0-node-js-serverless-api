@@ -1,118 +1,96 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
+import fetch from "node-fetch"
 
-// Function to detect Facebook Pixel on any website
-async function detectFacebookPixel(url: string): Promise<string[] | null> {
+export async function POST(req: NextRequest) {
   try {
-    console.log("🔍 [Public Detection] Scanning website for Facebook Pixel:", url)
-
-    // Ensure URL has protocol
-    if (!url.startsWith("http")) {
-      url = `https://${url}`
-    }
-
-    try {
-      console.log("🌐 [Public Detection] Fetching URL:", url)
-
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; FacebookPixelDetector/1.0)",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-        timeout: 15000,
-        redirect: "follow",
-      })
-
-      if (!response.ok) {
-        console.log("⚠️ [Public Detection] URL failed:", url, response.status)
-        throw new Error(`Failed to fetch URL: ${response.status} ${response.statusText}`)
-      }
-
-      const html = await response.text()
-      console.log("✅ [Public Detection] HTML fetched, length:", html.length)
-
-      // Look for Facebook Pixel patterns
-      const pixelPatterns = [
-        // fbq('init', 'PIXEL_ID')
-        /fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/gi,
-        // Facebook Pixel script with pixel ID
-        /facebook\.net\/tr\?id=(\d+)/gi,
-        // Meta Pixel patterns
-        /meta-pixel['"]\s*content=['"](\d+)['"]/gi,
-        // Data-pixel-id attributes
-        /data-pixel-id=['"](\d+)['"]/gi,
-        // Facebook pixel in script tags
-        /_fbp.*?(\d{15,})/gi,
-        // Connect.facebook.net patterns
-        /connect\.facebook\.net.*?(\d{15,})/gi,
-      ]
-
-      const detectedPixels = new Set<string>()
-
-      for (const pattern of pixelPatterns) {
-        let match
-        const patternCopy = new RegExp(pattern.source, pattern.flags) // Create a fresh copy of the regex
-        while ((match = patternCopy.exec(html)) !== null) {
-          const pixelId = match[1]
-          if (pixelId && pixelId.length >= 10 && /^\d+$/.test(pixelId)) {
-            detectedPixels.add(pixelId)
-            console.log("🎯 [Public Detection] Found pixel ID:", pixelId, "via pattern:", pattern.source)
-          }
-        }
-      }
-
-      if (detectedPixels.size > 0) {
-        const detectedPixelArray = Array.from(detectedPixels)
-        console.log("✅ [Public Detection] Pixels detected:", detectedPixelArray)
-        return detectedPixelArray
-      } else {
-        console.log("❌ [Public Detection] No Facebook Pixel found")
-        return []
-      }
-    } catch (urlError) {
-      console.log("❌ [Public Detection] Error with URL:", url, urlError.message)
-      throw urlError
-    }
-  } catch (error) {
-    console.error("💥 [Public Detection] Error:", error)
-    return null
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const { url } = await request.json()
+    const { url } = await req.json()
 
     if (!url) {
-      return NextResponse.json({ success: false, error: "URL parameter required" }, { status: 400 })
+      return NextResponse.json({ error: "URL is required" }, { status: 400 })
     }
 
-    console.log("🔍 [Public] Pixel detection for URL:", url)
-
-    // Detect pixel on website
-    const detectedPixels = await detectFacebookPixel(url)
-
-    if (!detectedPixels) {
-      return NextResponse.json({
-        success: false,
-        error: "Error scanning website",
-        url: url,
-      })
+    // Normalize URL
+    let normalizedUrl = url.trim()
+    if (!normalizedUrl.startsWith("http")) {
+      normalizedUrl = `https://${normalizedUrl}`
     }
+
+    // Fetch the website content
+    const response = await fetch(normalizedUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    })
+
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: `Failed to fetch website: ${response.status} ${response.statusText}` },
+        { status: 400 },
+      )
+    }
+
+    const html = await response.text()
+
+    // Enhanced patterns to detect Facebook Pixel IDs
+    const patterns = [
+      // Standard fbq init calls with different quote styles
+      /fbq\(\s*['"]init['"],\s*['"]([\d]+)['"]/g,
+      /fbq\(\s*["']init["'],\s*["']([\d]+)["']/g,
+      /fbq\(\s*[`]init[`],\s*[`]([\d]+)[`]/g,
+
+      // Minified versions
+      /fbq\(['"]init['"],['"](\d+)['"]/g,
+
+      // Config objects
+      /pixel_id['"]\s*:\s*['"]([\d]+)['"]/gi,
+      /pixelId['"]\s*:\s*['"]([\d]+)['"]/gi,
+      /pixel_id\s*:\s*['"]([\d]+)['"]/gi,
+      /pixelId\s*:\s*['"]([\d]+)['"]/gi,
+
+      // Script src patterns
+      /connect\.facebook\.net\/en_US\/fbevents\.js#xfbml=1&version=v\d+\.\d+&appId=\d+&autoLogAppEvents=1&id=([\d]+)/g,
+
+      // Data attributes
+      /data-pixel-id=['"]([\d]+)['"]/g,
+
+      // Shopify specific patterns
+      /trekkie\.push\(\s*\[\s*['"]identify['"]\s*,\s*['"]([\d]+)['"]/g,
+
+      // JSON config patterns
+      /"facebook_pixel_id"\s*:\s*"([\d]+)"/g,
+      /'facebook_pixel_id'\s*:\s*'([\d]+)'/g,
+
+      // General number near Facebook references (with validation)
+      /facebook[^>]*?(\d{15,16})/gi,
+      /pixel[^>]*?(\d{15,16})/gi,
+      /fbq[^>]*?(\d{15,16})/gi,
+    ]
+
+    const detectedPixels = new Set<string>()
+
+    // Apply each pattern and collect unique pixel IDs
+    patterns.forEach((pattern) => {
+      let match
+      while ((match = pattern.exec(html)) !== null) {
+        const pixelId = match[1]
+        // Validate: Facebook Pixel IDs are typically 15-16 digits
+        if (/^\d{15,16}$/.test(pixelId)) {
+          detectedPixels.add(pixelId)
+        }
+      }
+    })
 
     return NextResponse.json({
+      url: normalizedUrl,
+      pixelsFound: detectedPixels.size,
+      detectedPixels: Array.from(detectedPixels),
       success: true,
-      url: url,
-      detectedPixels: detectedPixels,
-      pixelsFound: detectedPixels.length,
     })
   } catch (error) {
-    console.error("💥 [Public] Detection error:", error)
+    console.error("Pixel detection error:", error)
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Internal server error",
-        url: error.url || null,
-      },
+      { error: "Failed to detect pixel: " + (error.message || "Unknown error") },
       { status: 500 },
     )
   }
