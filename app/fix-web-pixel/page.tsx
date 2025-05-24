@@ -7,15 +7,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, Zap, Bug } from "lucide-react"
+import { CheckCircle, AlertCircle, Zap, Trash2 } from "lucide-react"
 
 export default function FixWebPixel() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
   const [pixelId, setPixelId] = useState("864857281256627")
+  const [webPixelId, setWebPixelId] = useState("")
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
-  const debugWebPixel = async () => {
+  const smartUpdate = async () => {
     if (!pixelId) {
       alert("Please enter your Facebook Pixel ID")
       return
@@ -23,7 +24,7 @@ export default function FixWebPixel() {
 
     setLoading(true)
     try {
-      const response = await fetch("/api/shopify/debug-web-pixel", {
+      const response = await fetch("/api/shopify/smart-web-pixel-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -32,46 +33,40 @@ export default function FixWebPixel() {
         }),
       })
 
-      console.log("Response status:", response.status)
-      console.log("Response headers:", response.headers)
-
       const data = await response.json()
       setResults(data)
-      console.log("Debug result:", data)
+      console.log("Smart update result:", data)
     } catch (error) {
-      console.error("Debug failed:", error)
-      setResults({ success: false, error: "Debug failed", details: error.message })
+      console.error("Smart update failed:", error)
+      setResults({ success: false, error: "Smart update failed", details: error.message })
     } finally {
       setLoading(false)
     }
   }
 
-  const createOrUpdateWebPixel = async () => {
-    if (!pixelId) {
-      alert("Please enter your Facebook Pixel ID")
+  const deleteWebPixel = async () => {
+    if (!webPixelId) {
+      alert("Please enter the Web Pixel ID to delete")
       return
     }
 
     setLoading(true)
     try {
-      const response = await fetch("/api/shopify/create-or-update-web-pixel", {
+      const response = await fetch("/api/shopify/delete-web-pixel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           shop,
-          accountID: pixelId,
+          webPixelId,
         }),
       })
 
-      console.log("Response status:", response.status)
-      console.log("Response headers:", response.headers)
-
       const data = await response.json()
       setResults(data)
-      console.log("Create/Update result:", data)
+      console.log("Delete result:", data)
     } catch (error) {
-      console.error("Create/Update failed:", error)
-      setResults({ success: false, error: "Create/Update failed", details: error.message })
+      console.error("Delete failed:", error)
+      setResults({ success: false, error: "Delete failed", details: error.message })
     } finally {
       setLoading(false)
     }
@@ -81,19 +76,20 @@ export default function FixWebPixel() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold">Fix Web Pixel Configuration</h1>
-        <p className="text-muted-foreground mt-2">Debug and fix your Web Pixel setup</p>
+        <p className="text-muted-foreground mt-2">Handle existing Web Pixel and update settings</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Debug Strategy</CardTitle>
+          <CardTitle>Current Situation</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Step-by-Step Debugging</AlertTitle>
+            <AlertTitle>Web Pixel Already Exists</AlertTitle>
             <AlertDescription>
-              First run the debug endpoint to see exactly where the issue is, then try the full creation.
+              Your app already has a Web Pixel installed. We need to either update it or delete and recreate it with the
+              correct Facebook Pixel ID.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -122,6 +118,18 @@ export default function FixWebPixel() {
               placeholder="864857281256627"
             />
           </div>
+          <div>
+            <Label htmlFor="webPixelId">Web Pixel ID (for deletion)</Label>
+            <Input
+              id="webPixelId"
+              value={webPixelId}
+              onChange={(e) => setWebPixelId(e.target.value)}
+              placeholder="gid://shopify/WebPixel/123456789"
+            />
+            <p className="text-sm text-muted-foreground mt-1">
+              Find this in Shopify Admin → Settings → Customer events
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -131,13 +139,13 @@ export default function FixWebPixel() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button onClick={debugWebPixel} disabled={loading || !pixelId} variant="outline">
-              <Bug className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Debug Web Pixel
-            </Button>
-            <Button onClick={createOrUpdateWebPixel} disabled={loading || !pixelId} variant="default">
+            <Button onClick={smartUpdate} disabled={loading || !pixelId} variant="default">
               <Zap className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              Create/Update Web Pixel
+              Smart Update Web Pixel
+            </Button>
+            <Button onClick={deleteWebPixel} disabled={loading || !webPixelId} variant="destructive">
+              <Trash2 className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+              Delete Web Pixel
             </Button>
           </div>
         </CardContent>
@@ -163,14 +171,15 @@ export default function FixWebPixel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Next Steps</CardTitle>
+          <CardTitle>Manual Steps</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>First click "Debug Web Pixel" to see where the issue is</li>
-            <li>If debug succeeds, then try "Create/Update Web Pixel"</li>
-            <li>Check the browser console and server logs for detailed info</li>
-            <li>Verify the result in your store's browser console</li>
+            <li>Go to your Shopify admin: Settings → Customer events</li>
+            <li>Find the existing Web Pixel (should show your app name)</li>
+            <li>Copy the Web Pixel ID from the URL or inspect element</li>
+            <li>Either delete the existing Web Pixel and create a new one, or update it</li>
+            <li>Check your store's browser console for the correct pixel ID</li>
           </ol>
         </CardContent>
       </Card>
