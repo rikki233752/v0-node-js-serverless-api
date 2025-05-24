@@ -1,54 +1,190 @@
 import { NextResponse } from "next/server"
-import { getAccessToken } from "@/lib/pixel-tokens"
+import { prisma, executeWithRetry } from "@/lib/db"
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent, Origin, Referer",
+  "Access-Control-Max-Age": "86400",
+  "Cache-Control": "no-cache",
+}
 
 export async function POST(request: Request) {
+  console.log("📡 [Config API] Received config request")
+
   try {
-    const { pixelId, shop, source } = await request.json()
+    const body = await request.json()
+    const { shop, source } = body
 
-    console.log("🔍 [Config API] Pixel config request:", { pixelId, shop, source })
+    console.log("🏪 [Config API] Request details:", { shop, source })
 
-    if (!pixelId) {
-      return NextResponse.json({ success: false, error: "Pixel ID required" }, { status: 400 })
+    if (!shop || shop === "unknown") {
+      console.log("⚠️ [Config API] Invalid shop domain provided")
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Valid shop domain is required",
+          receivedShop: shop,
+          debug: "Shop domain detection failed",
+        },
+        { status: 400, headers: corsHeaders },
+      )
     }
 
-    // Get access token for this pixel ID
-    const accessToken = await getAccessToken(pixelId)
+    // Clean shop domain (remove protocol, www, etc.)
+    const cleanShop = shop
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .toLowerCase()
 
-    if (!accessToken) {
-      console.log("⚠️ [Config API] No access token found for pixel:", pixelId)
-      return NextResponse.json({
-        success: false,
-        error: "Pixel not configured",
-        message: `Pixel ID ${pixelId} not found in database. Add it to enable gateway tracking.`,
-        pixelId,
-        shop,
+    console.log("🧹 [Config API] Cleaned shop domain:", cleanShop)
+
+    // Look up shop configuration in database
+    const shopConfig = await executeWithRetry(async () => {
+      return await prisma.shopConfig.findFirst({
+        where: {
+          OR: [{ shopDomain: cleanShop }, { shopDomain: shop }, { shopDomain: { contains: cleanShop } }],
+        },
+        include: {
+          pixelConfig: true, // Include related pixel configuration
+        },
+      })
+    })
+
+    if (!shopConfig) {
+      console.log("❌ [Config API] No shop configuration found for:", cleanShop)
+
+      // Check if we have a default pixel configuration
+      const defaultPixelId = process.env.FACEBOOK_PIXEL_ID
+      if (defaultPixelId) {
+        console.log("🔄 [Config API] Using default pixel configuration")
+        return NextResponse.json(
+          {
+            success: true,
+            pixelId: defaultPixelId,
+            gatewayEnabled: true,
+            source: "default_env",
+            shop: cleanShop,
+            message: "Using default pixel configuration",
+          },
+          { headers: corsHeaders },
+        )
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No pixel configuration found for this shop",
+          shop: cleanShop,
+        },
+        { status: 404, headers: corsHeaders },
+      )
+    }
+
+    console.log("✅ [Config API] Found shop configuration:", {
+      shopId: shopConfig.id,
+      shopDomain: shopConfig.shopDomain,
+      pixelConfigId: shopConfig.pixelConfigId,
+    })
+
+    // Get the pixel configuration
+    let pixelConfig = shopConfig.pixelConfig
+
+    // If no direct pixel config, try to find one by pixel ID
+    if (!pixelConfig && shopConfig.pixelConfigId) {
+      pixelConfig = await executeWithRetry(async () => {
+        return await prisma.pixelConfig.findUnique({
+          where: { id: shopConfig.pixelConfigId },
+        })
       })
     }
 
-    console.log("✅ [Config API] Found configuration for pixel:", pixelId)
+    if (!pixelConfig) {
+      console.log("❌ [Config API] No pixel configuration found for shop")
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No pixel configuration found for this shop",
+          shop: cleanShop,
+        },
+        { status: 404, headers: corsHeaders },
+      )
+    }
 
-    return NextResponse.json({
-      success: true,
-      pixelId,
-      accessToken,
-      gatewayEnabled: true,
-      shop,
-      message: "Gateway enabled for this pixel",
+    console.log("🎯 [Config API] Found pixel configuration:", {
+      pixelId: pixelConfig.pixelId,
+      name: pixelConfig.name,
+      hasAccessToken: !!pixelConfig.accessToken,
     })
+
+    // Validate that we have an access token for this pixel
+    if (!pixelConfig.accessToken) {
+      console.log("⚠️ [Config API] Pixel configuration missing access token")
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Pixel configuration is incomplete (missing access token)",
+          pixelId: pixelConfig.pixelId,
+          shop: cleanShop,
+        },
+        { status: 400, headers: corsHeaders },
+      )
+    }
+
+    // Return the validated configuration
+    const response = {
+      success: true,
+      pixelId: pixelConfig.pixelId,
+      gatewayEnabled: true,
+      source: "database",
+      shop: cleanShop,
+      pixelName: pixelConfig.name,
+      configuredAt: shopConfig.createdAt,
+      lastUpdated: shopConfig.updatedAt,
+    }
+
+    console.log("📤 [Config API] Returning configuration:", response)
+
+    return NextResponse.json(response, { headers: corsHeaders })
   } catch (error) {
-    console.error("💥 [Config API] Error:", error)
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500 })
+    console.error("💥 [Config API] Error processing config request:", error)
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500, headers: corsHeaders },
+    )
   }
 }
 
-// Handle CORS for Web Pixel requests
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const shop = searchParams.get("shop")
+
+  if (!shop) {
+    return NextResponse.json(
+      { success: false, error: "Shop parameter is required" },
+      { status: 400, headers: corsHeaders },
+    )
+  }
+
+  // Convert GET to POST format
+  return POST(
+    new Request(request.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ shop, source: "get_request" }),
+    }),
+  )
+}
+
 export async function OPTIONS(request: Request) {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    },
+  return new Response(null, {
+    headers: corsHeaders,
+    status: 204,
   })
 }
