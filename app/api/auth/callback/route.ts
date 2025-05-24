@@ -4,7 +4,7 @@ import { storeShopData } from "@/lib/db-auth"
 import { activateWebPixel } from "@/lib/shopify-graphql"
 import { prisma } from "@/lib/prisma"
 
-// Function to detect Facebook Pixel on the website
+// Enhanced function to detect Facebook Pixel on the website
 async function detectFacebookPixel(shopDomain: string): Promise<string | null> {
   try {
     console.log("🔍 [Pixel Detection] Scanning website for Facebook Pixel:", shopDomain)
@@ -24,56 +24,91 @@ async function detectFacebookPixel(shopDomain: string): Promise<string | null> {
 
     if (!response.ok) {
       console.log("⚠️ [Pixel Detection] Website fetch failed:", response.status)
+
+      // Try with www prefix if original failed
+      if (!shopUrl.includes("www.")) {
+        const wwwUrl = shopUrl.replace("https://", "https://www.")
+        console.log("🔄 [Pixel Detection] Retrying with www prefix:", wwwUrl)
+
+        const wwwResponse = await fetch(wwwUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; FacebookPixelDetector/1.0)",
+          },
+          timeout: 10000,
+        })
+
+        if (!wwwResponse.ok) {
+          console.log("❌ [Pixel Detection] www prefix fetch also failed:", wwwResponse.status)
+          return null
+        }
+
+        const wwwHtml = await wwwResponse.text()
+        console.log("✅ [Pixel Detection] Website HTML fetched with www prefix, length:", wwwHtml.length)
+        return extractPixelFromHtml(wwwHtml)
+      }
+
       return null
     }
 
     const html = await response.text()
     console.log("✅ [Pixel Detection] Website HTML fetched, length:", html.length)
 
-    // Look for Facebook Pixel patterns
-    const pixelPatterns = [
-      // fbq('init', 'PIXEL_ID')
-      /fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/gi,
-      // Facebook Pixel script with pixel ID
-      /facebook\.net\/tr\?id=(\d+)/gi,
-      // Meta Pixel patterns
-      /meta-pixel['"]\s*content=['"](\d+)['"]/gi,
-      // Data-pixel-id attributes
-      /data-pixel-id=['"](\d+)['"]/gi,
-    ]
-
-    const detectedPixels = new Set<string>()
-
-    for (const pattern of pixelPatterns) {
-      let match
-      while ((match = pattern.exec(html)) !== null) {
-        const pixelId = match[1]
-        if (pixelId && pixelId.length >= 10) {
-          // Facebook Pixel IDs are typically 15+ digits
-          detectedPixels.add(pixelId)
-          console.log("🎯 [Pixel Detection] Found pixel ID:", pixelId)
-        }
-      }
-    }
-
-    if (detectedPixels.size === 0) {
-      console.log("❌ [Pixel Detection] No Facebook Pixel found on website")
-      return null
-    }
-
-    if (detectedPixels.size > 1) {
-      console.log("⚠️ [Pixel Detection] Multiple pixels found:", Array.from(detectedPixels))
-      // Return the first one found
-      return Array.from(detectedPixels)[0]
-    }
-
-    const detectedPixel = Array.from(detectedPixels)[0]
-    console.log("✅ [Pixel Detection] Single pixel detected:", detectedPixel)
-    return detectedPixel
+    return extractPixelFromHtml(html)
   } catch (error) {
     console.error("💥 [Pixel Detection] Error scanning website:", error)
     return null
   }
+}
+
+// Helper function to extract pixel ID from HTML
+function extractPixelFromHtml(html: string): string | null {
+  // Look for Facebook Pixel patterns
+  const pixelPatterns = [
+    // fbq('init', 'PIXEL_ID')
+    /fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/gi,
+    // Facebook Pixel script with pixel ID
+    /facebook\.net\/en_US\/fbevents\.js[^>]+id=(\d+)/gi,
+    /facebook\.net\/tr\?id=(\d+)/gi,
+    // Meta Pixel patterns
+    /meta-pixel['"]\s*content=['"](\d+)['"]/gi,
+    // Data-pixel-id attributes
+    /data-pixel-id=['"](\d+)['"]/gi,
+    // Facebook Pixel in JSON config
+    /"facebook_pixel_id"\s*:\s*["'](\d+)["']/gi,
+    // GTM pattern
+    /gtm["']?\s*:\s*["']?(\d{15,16})["']?/gi,
+    // Shopify specific patterns
+    /shopify\.analytics\.meta_pixel_id\s*=\s*["'](\d+)["']/gi,
+  ]
+
+  const detectedPixels = new Set<string>()
+
+  for (const pattern of pixelPatterns) {
+    let match
+    while ((match = pattern.exec(html)) !== null) {
+      const pixelId = match[1]
+      if (pixelId && pixelId.length >= 10) {
+        // Facebook Pixel IDs are typically 15+ digits
+        detectedPixels.add(pixelId)
+        console.log("🎯 [Pixel Detection] Found pixel ID:", pixelId)
+      }
+    }
+  }
+
+  if (detectedPixels.size === 0) {
+    console.log("❌ [Pixel Detection] No Facebook Pixel found on website")
+    return null
+  }
+
+  if (detectedPixels.size > 1) {
+    console.log("⚠️ [Pixel Detection] Multiple pixels found:", Array.from(detectedPixels))
+    // Return the first one found
+    return Array.from(detectedPixels)[0]
+  }
+
+  const detectedPixel = Array.from(detectedPixels)[0]
+  console.log("✅ [Pixel Detection] Single pixel detected:", detectedPixel)
+  return detectedPixel
 }
 
 // OAuth callback endpoint
