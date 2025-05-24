@@ -20,16 +20,25 @@ export async function GET(request: NextRequest) {
     redirectUri,
     apiKey: process.env.SHOPIFY_API_KEY ? "Set" : "Not set",
     apiSecret: process.env.SHOPIFY_API_SECRET ? "Set" : "Not set",
+    requestUrl: request.url,
+    headers: {
+      host: request.headers.get("host"),
+      userAgent: request.headers.get("user-agent"),
+    },
   })
 
   // If no shop parameter is provided, redirect to the home page
   if (!shop) {
+    console.log("No shop parameter provided, redirecting to home")
     return NextResponse.redirect(new URL("/", request.url))
   }
 
   // Validate shop parameter
   if (!isValidShop(shop)) {
-    return NextResponse.redirect(new URL(`/api/auth/error?error=Invalid shop parameter: ${shop}`, request.url))
+    console.error("Invalid shop parameter:", shop)
+    const errorUrl = new URL("/api/auth/error", request.url)
+    errorUrl.searchParams.set("error", `Invalid shop parameter: ${shop}`)
+    return NextResponse.redirect(errorUrl)
   }
 
   // Generate nonce for security
@@ -42,6 +51,8 @@ export async function GET(request: NextRequest) {
   console.log({
     message: "Generated auth URL",
     authUrl,
+    nonce,
+    shop,
   })
 
   // Store nonce in cookie for verification during callback
@@ -69,5 +80,6 @@ export async function GET(request: NextRequest) {
     maxAge: 60 * 60, // 1 hour
   })
 
+  console.log("Redirecting to Shopify OAuth:", authUrl)
   return response
 }

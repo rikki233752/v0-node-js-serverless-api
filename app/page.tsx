@@ -53,6 +53,16 @@ export default function Home({
               className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-3"
               disabled={!isApiKeySet}
             />
+            {process.env.NODE_ENV === "development" && (
+              <div className="mt-4 p-3 bg-gray-100 rounded text-xs">
+                <p>
+                  <strong>Debug Info:</strong>
+                </p>
+                <p>API Key: {apiKey ? "Set" : "Missing"}</p>
+                <p>Host: {host}</p>
+                <p>Redirect URI: {redirectUri}</p>
+              </div>
+            )}
             {!isApiKeySet && (
               <p className="text-sm text-gray-300 mt-2">Installation is disabled until the API key is configured.</p>
             )}
