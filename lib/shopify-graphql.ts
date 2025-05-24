@@ -45,7 +45,6 @@ export class ShopifyGraphQLClient {
   }
 }
 
-// Exact mutation from Shopify documentation
 const WEB_PIXEL_CREATE_MUTATION = `
   mutation webPixelCreate($webPixel: WebPixelInput!) {
     webPixelCreate(webPixel: $webPixel) {
@@ -62,36 +61,24 @@ const WEB_PIXEL_CREATE_MUTATION = `
   }
 `
 
-export async function activateWebPixel(shop: string, accessToken: string, pixelId?: string) {
+export async function activateWebPixel(shop: string, accessToken: string, accountId?: string) {
   try {
     console.log("🚀 Starting Web Pixel activation for shop:", shop)
 
     const client = new ShopifyGraphQLClient(shop, accessToken)
 
-    // Use the exact format from Shopify documentation
-    // Start with the simple accountID format, then add other settings
+    // Match EXACTLY your TOML - only accountID field
     const settings = {
-      accountID: pixelId || process.env.FACEBOOK_PIXEL_ID || "123", // Use 123 as fallback like in docs
+      accountID: accountId || process.env.FACEBOOK_PIXEL_ID || "123",
     }
-
-    // Add additional settings if they exist
-    if (process.env.FACEBOOK_PIXEL_ID || pixelId) {
-      settings.pixelId = pixelId || process.env.FACEBOOK_PIXEL_ID
-    }
-
-    if (process.env.HOST) {
-      settings.gatewayUrl = process.env.HOST + "/api/track"
-    }
-
-    settings.debug = process.env.NODE_ENV === "development"
 
     // Convert settings to JSON string as required by Shopify
     const settingsJson = JSON.stringify(settings)
 
-    console.log("📝 Creating Web Pixel with settings:", settingsJson)
-    console.log("🔧 Using access token:", accessToken ? "present" : "missing")
+    console.log("📝 Creating Web Pixel with settings matching your TOML:", settingsJson)
+    console.log("🔧 Your extension only expects: accountID")
 
-    // Execute the exact mutation from Shopify docs
+    // Execute the mutation
     const result = await client.query(WEB_PIXEL_CREATE_MUTATION, {
       webPixel: {
         settings: settingsJson,
@@ -109,6 +96,7 @@ export async function activateWebPixel(shop: string, accessToken: string, pixelI
         error: "Web Pixel creation failed",
         userErrors: errors,
         details: errors.map((err: any) => `${err.field}: ${err.message} (${err.code})`).join(", "),
+        settingsUsed: settingsJson,
       }
     }
 
