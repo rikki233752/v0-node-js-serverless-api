@@ -137,6 +137,14 @@ export function ConnectionStatus() {
               </Button>
               <Button
                 variant="outline"
+                onClick={() => (window.location.href = `/shopify-pixel-debug?shop=${encodeURIComponent(shop)}`)}
+                className="w-full"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Debug Web Pixel
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => checkConnectionStatus(shop)}
                 disabled={checking}
                 className="w-full"
