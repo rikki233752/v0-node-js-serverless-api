@@ -43,9 +43,11 @@ export default function ShopifyPixelDebug() {
         setResult(data)
       } else {
         setError(data.error || "Failed to check pixel status")
+        console.error("API Error:", data)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
+      console.error("Request Error:", err)
     } finally {
       setLoading(false)
     }
@@ -61,6 +63,8 @@ export default function ShopifyPixelDebug() {
     setError(null)
 
     try {
+      console.log("Registering pixel for shop:", shop)
+
       const response = await fetch("/api/shopify/register-pixel", {
         method: "POST",
         headers: {
@@ -70,15 +74,21 @@ export default function ShopifyPixelDebug() {
       })
 
       const data = await response.json()
+      console.log("Registration response:", data)
 
       if (data.success) {
         // Refresh the status after registration
         await checkPixelStatus()
+
+        // Show success message
+        setError(null)
       } else {
         setError(data.error || "Failed to register pixel")
+        console.error("Registration failed:", data)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
+      console.error("Registration error:", err)
     } finally {
       setRegistering(false)
     }
@@ -114,7 +124,15 @@ export default function ShopifyPixelDebug() {
               <Alert variant="destructive">
                 <XCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription>
+                  {error}
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-sm">Show technical details</summary>
+                    <pre className="text-xs mt-1 p-2 bg-gray-100 rounded overflow-auto">
+                      {JSON.stringify({ error, timestamp: new Date().toISOString() }, null, 2)}
+                    </pre>
+                  </details>
+                </AlertDescription>
               </Alert>
             )}
 
@@ -157,7 +175,21 @@ export default function ShopifyPixelDebug() {
                 <div>
                   <strong>Country:</strong> {result.shop?.country_name || "Unknown"}
                 </div>
+                <div>
+                  <strong>API Version:</strong> {result.apiVersionUsed || "Unknown"}
+                </div>
+                <div>
+                  <strong>Gateway URL:</strong> {result.gatewayUrl || "Not set"}
+                </div>
               </div>
+
+              {result.shop?.error && (
+                <Alert variant="destructive" className="mt-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Shop API Error</AlertTitle>
+                  <AlertDescription>{result.shop.error}</AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
 
@@ -166,6 +198,14 @@ export default function ShopifyPixelDebug() {
               <CardTitle>Web Pixels Status</CardTitle>
             </CardHeader>
             <CardContent>
+              {result.pixelsError && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Pixels API Error</AlertTitle>
+                  <AlertDescription>{result.pixelsError}</AlertDescription>
+                </Alert>
+              )}
+
               {result.pixels && result.pixels.length > 0 ? (
                 <div className="space-y-4">
                   {result.pixels.map((pixel: any, index: number) => (
@@ -175,6 +215,9 @@ export default function ShopifyPixelDebug() {
                           <h3 className="font-semibold">{pixel.name}</h3>
                           <p className="text-sm text-gray-500">ID: {pixel.id}</p>
                           <p className="text-sm text-gray-500">Status: {pixel.status}</p>
+                          {pixel.settings?.accountID && (
+                            <p className="text-sm text-gray-500">Account ID: {pixel.settings.accountID}</p>
+                          )}
                         </div>
                         <Badge variant={pixel.status === "active" ? "default" : "secondary"}>{pixel.status}</Badge>
                       </div>
@@ -194,8 +237,8 @@ export default function ShopifyPixelDebug() {
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>No Web Pixels Found</AlertTitle>
                   <AlertDescription>
-                    No Web Pixel Extensions are registered for this store. This might be why the app shows as
-                    disconnected in Customer Events.
+                    No Web Pixel Extensions are registered for this store. This is why the app shows as disconnected in
+                    Customer Events. Click "Register Web Pixel" to fix this.
                   </AlertDescription>
                 </Alert>
               )}
@@ -207,6 +250,14 @@ export default function ShopifyPixelDebug() {
               <CardTitle>Customer Events</CardTitle>
             </CardHeader>
             <CardContent>
+              {result.customerEventsError && (
+                <Alert className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Customer Events API</AlertTitle>
+                  <AlertDescription>{result.customerEventsError}</AlertDescription>
+                </Alert>
+              )}
+
               {result.customerEvents && result.customerEvents.length > 0 ? (
                 <div className="space-y-2">
                   {result.customerEvents.map((event: any, index: number) => (
@@ -264,8 +315,8 @@ export default function ShopifyPixelDebug() {
               extension files.
             </li>
             <li>
-              <strong>Rebuild Extension:</strong> If you have the Shopify CLI, try rebuilding and deploying the Web
-              Pixel Extension.
+              <strong>Review Server Logs:</strong> Check the browser console and server logs for detailed error
+              messages.
             </li>
             <li>
               <strong>Contact Shopify Support:</strong> If the issue persists, there might be a platform-level issue.
