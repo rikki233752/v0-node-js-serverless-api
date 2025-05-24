@@ -94,6 +94,38 @@ export default function ShopifyPixelDebug() {
     }
   }
 
+  const testShopifyApi = async () => {
+    if (!shop) {
+      setError("Please enter a shop domain")
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      console.log("Testing Shopify API for shop:", shop)
+
+      const response = await fetch(`/api/shopify/test-api?shop=${encodeURIComponent(shop)}`)
+      const data = await response.json()
+
+      console.log("API test response:", data)
+
+      if (data.success) {
+        setError(null)
+        alert("Shopify API test successful! Check console for details.")
+      } else {
+        setError(`API test failed: ${data.error}`)
+        console.error("API test failed:", data)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error")
+      console.error("API test error:", err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="flex justify-between items-center mb-6">
@@ -140,6 +172,15 @@ export default function ShopifyPixelDebug() {
               <Button onClick={checkPixelStatus} disabled={loading || !shop} className="flex items-center gap-2">
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
                 {loading ? "Checking..." : "Check Status"}
+              </Button>
+
+              <Button
+                onClick={testShopifyApi}
+                disabled={loading || !shop}
+                variant="secondary"
+                className="flex items-center gap-2"
+              >
+                Test API Access
               </Button>
 
               <Button
