@@ -43,3 +43,78 @@ export class ShopifyGraphQLClient {
     return data.data
   }
 }
+
+const WEB_PIXEL_CREATE_MUTATION = `
+  mutation webPixelCreate($webPixel: WebPixelInput!) {
+    webPixelCreate(webPixel: $webPixel) {
+      userErrors {
+        code
+        field
+        message
+      }
+      webPixel {
+        settings
+        id
+      }
+    }
+  }
+`
+
+export async function activateWebPixel(shop: string, accessToken: string) {
+  try {
+    const client = new ShopifyGraphQLClient(shop, accessToken)
+
+    // Prepare the settings according to shopify.extension.toml
+    const settings = {
+      accountID: "facebook-pixel-gateway",
+      pixelId: process.env.FACEBOOK_PIXEL_ID || "",
+      gatewayUrl: (process.env.HOST || "https://v0-node-js-serverless-api-lake.vercel.app") + "/api/track",
+      debug: process.env.NODE_ENV === "development",
+    }
+
+    // Convert settings to JSON string as required by Shopify
+    const settingsJson = JSON.stringify(settings)
+
+    console.log("Creating Web Pixel with settings:", settingsJson)
+
+    // Execute the mutation
+    const result = await client.query(WEB_PIXEL_CREATE_MUTATION, {
+      webPixel: {
+        settings: settingsJson,
+      },
+    })
+
+    console.log("Web Pixel creation result:", result)
+
+    // Check for user errors
+    if (result.webPixelCreate.userErrors && result.webPixelCreate.userErrors.length > 0) {
+      const errors = result.webPixelCreate.userErrors
+      return {
+        success: false,
+        error: "Web Pixel creation failed",
+        userErrors: errors,
+        details: errors.map((err: any) => `${err.field}: ${err.message} (${err.code})`).join(", "),
+      }
+    }
+
+    // Check if web pixel was created
+    if (!result.webPixelCreate.webPixel) {
+      return {
+        success: false,
+        error: "Web Pixel creation failed - no pixel returned",
+        result,
+      }
+    }
+
+    return {
+      success: true,
+      webPixel: result.webPixelCreate.webPixel,
+    }
+  } catch (error) {
+    console.error("Error in activateWebPixel:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    }
+  }
+}

@@ -7,11 +7,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, RefreshCw } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { CheckCircle, AlertCircle, RefreshCw, ExternalLink } from "lucide-react"
 
 export default function ShopifyPixelDebug() {
   const [shop, setShop] = useState("testforgateway-rikki.myshopify.com")
   const [accessToken, setAccessToken] = useState("")
+  const [accountID, setAccountID] = useState("facebook-pixel-gateway")
+  const [pixelId, setPixelId] = useState("")
+  const [gatewayUrl, setGatewayUrl] = useState("https://v0-node-js-serverless-api-lake.vercel.app/api/track")
+  const [debug, setDebug] = useState(false)
   const [results, setResults] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [databaseInfo, setDatabaseInfo] = useState<any>(null)
@@ -76,12 +81,23 @@ export default function ShopifyPixelDebug() {
   }
 
   const activateWebPixel = async () => {
+    if (!pixelId) {
+      alert("Please enter your Facebook Pixel ID")
+      return
+    }
+
     setLoading(true)
     try {
       const response = await fetch("/api/shopify/activate-web-pixel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop }),
+        body: JSON.stringify({
+          shop,
+          accountID,
+          pixelId,
+          gatewayUrl,
+          debug,
+        }),
       })
       const data = await response.json()
       setResults(data)
@@ -99,30 +115,11 @@ export default function ShopifyPixelDebug() {
     }
   }
 
-  const checkStoreCapabilities = async () => {
-    setLoading(true)
-    try {
-      const response = await fetch("/api/shopify/store-capabilities", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shop }),
-      })
-      const data = await response.json()
-      setResults(data)
-      console.log("Store capabilities:", data)
-    } catch (error) {
-      console.error("Store capabilities check failed:", error)
-      setResults({ success: false, error: "Failed to check store capabilities" })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="text-center">
         <h1 className="text-3xl font-bold">Shopify Web Pixel Activation</h1>
-        <p className="text-muted-foreground mt-2">Activate your Web Pixel extension using GraphQL</p>
+        <p className="text-muted-foreground mt-2">Follow Shopify's official documentation to activate your Web Pixel</p>
       </div>
 
       <Card>
@@ -155,6 +152,54 @@ export default function ShopifyPixelDebug() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Web Pixel Settings</CardTitle>
+          <CardDescription>
+            Configure the settings for your Web Pixel extension (as defined in shopify.extension.toml)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label htmlFor="accountID">Account ID</Label>
+            <Input
+              id="accountID"
+              value={accountID}
+              onChange={(e) => setAccountID(e.target.value)}
+              placeholder="facebook-pixel-gateway"
+            />
+            <p className="text-sm text-muted-foreground">
+              This should match the accountID field in your extension settings
+            </p>
+          </div>
+          <div>
+            <Label htmlFor="pixelId">Facebook Pixel ID *</Label>
+            <Input
+              id="pixelId"
+              value={pixelId}
+              onChange={(e) => setPixelId(e.target.value)}
+              placeholder="Enter your Facebook Pixel ID"
+              required
+            />
+            <p className="text-sm text-muted-foreground">Required: Your Facebook Pixel ID from Meta Business Manager</p>
+          </div>
+          <div>
+            <Label htmlFor="gatewayUrl">Gateway URL</Label>
+            <Input
+              id="gatewayUrl"
+              value={gatewayUrl}
+              onChange={(e) => setGatewayUrl(e.target.value)}
+              placeholder="https://your-app.vercel.app/api/track"
+            />
+            <p className="text-sm text-muted-foreground">URL where pixel events will be sent</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox id="debug" checked={debug} onCheckedChange={(checked) => setDebug(checked as boolean)} />
+            <Label htmlFor="debug">Enable Debug Mode</Label>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Database & Registration</CardTitle>
           <CardDescription>Check database status and register shop if needed</CardDescription>
         </CardHeader>
@@ -181,7 +226,9 @@ export default function ShopifyPixelDebug() {
       <Card>
         <CardHeader>
           <CardTitle>Web Pixel Management</CardTitle>
-          <CardDescription>Check and activate Web Pixel extensions using GraphQL</CardDescription>
+          <CardDescription>
+            Check and activate Web Pixel extensions using the official Shopify GraphQL mutation
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -189,7 +236,7 @@ export default function ShopifyPixelDebug() {
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               {loading ? "Checking..." : "Check Web Pixels"}
             </Button>
-            <Button onClick={activateWebPixel} disabled={loading} variant="default">
+            <Button onClick={activateWebPixel} disabled={loading || !pixelId} variant="default">
               {loading ? "Activating..." : "Activate Web Pixel"}
             </Button>
           </div>
@@ -226,24 +273,30 @@ export default function ShopifyPixelDebug() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Store Analysis</CardTitle>
-          <CardDescription>Check your store's capabilities</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={checkStoreCapabilities} disabled={loading}>
-            {loading ? "Checking..." : "Check Store Capabilities"}
-          </Button>
-        </CardContent>
-      </Card>
-
       {results && (
         <Card>
           <CardHeader>
             <CardTitle>Results</CardTitle>
           </CardHeader>
           <CardContent>
+            {results.success && (
+              <Alert className="mb-4">
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Success!</AlertTitle>
+                <AlertDescription>
+                  {results.message}
+                  <br />
+                  <a
+                    href={`https://${shop}/admin/settings/customer_events`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center mt-2 text-blue-600 hover:text-blue-800"
+                  >
+                    Check Customer Events in Shopify Admin <ExternalLink className="h-4 w-4 ml-1" />
+                  </a>
+                </AlertDescription>
+              </Alert>
+            )}
             <Textarea value={JSON.stringify(results, null, 2)} readOnly className="min-h-[200px] font-mono text-sm" />
           </CardContent>
         </Card>
@@ -251,19 +304,19 @@ export default function ShopifyPixelDebug() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Instructions</CardTitle>
+          <CardTitle>Next Steps</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>How to use this tool</AlertTitle>
+            <AlertTitle>After Activation</AlertTitle>
             <AlertDescription>
               <ol className="list-decimal pl-5 space-y-1 mt-2">
-                <li>First, check if your shop is in the database</li>
-                <li>If not found, register it manually with an access token</li>
-                <li>Check existing Web Pixels to see current status</li>
-                <li>Click "Activate Web Pixel" to create a new Web Pixel using GraphQL</li>
-                <li>Verify the Web Pixel was created successfully</li>
+                <li>Go to your Shopify admin → Settings → Customer events</li>
+                <li>Look for your app in the "App pixels" section</li>
+                <li>It should show "Connected" status</li>
+                <li>Test the pixel by making a test purchase</li>
+                <li>Check Facebook Events Manager for incoming events</li>
               </ol>
             </AlertDescription>
           </Alert>

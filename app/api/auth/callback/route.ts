@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { validateHmac, getAccessToken } from "@/lib/shopify"
 import { storeShopData } from "@/lib/db-auth"
+import { activateWebPixel } from "@/lib/shopify-graphql"
 
 // OAuth callback endpoint
 export async function GET(request: NextRequest) {
@@ -108,10 +109,37 @@ export async function GET(request: NextRequest) {
 
     console.log("Shop data stored successfully for:", shop)
 
+    // AUTOMATICALLY ACTIVATE WEB PIXEL AFTER SUCCESSFUL INSTALLATION
+    let webPixelStatus = "not_attempted"
+    let webPixelError = null
+
+    try {
+      console.log("Attempting to activate Web Pixel automatically...")
+      const webPixelResult = await activateWebPixel(shop, accessToken)
+
+      if (webPixelResult.success) {
+        console.log("✅ Web Pixel activated successfully during installation:", webPixelResult.webPixel?.id)
+        webPixelStatus = "success"
+      } else {
+        console.warn("❌ Web Pixel activation failed during installation:", webPixelResult.error)
+        webPixelStatus = "failed"
+        webPixelError = webPixelResult.error
+        // Don't fail the installation if Web Pixel creation fails
+      }
+    } catch (webPixelError) {
+      console.error("❌ Error activating Web Pixel during installation:", webPixelError)
+      webPixelStatus = "error"
+      // Don't fail the installation if Web Pixel creation fails
+    }
+
     // Create response with success redirect
     const successUrl = new URL("/auth/success", request.url)
     successUrl.searchParams.set("shop", shop)
     successUrl.searchParams.set("status", "connected")
+    successUrl.searchParams.set("webPixelStatus", webPixelStatus)
+    if (webPixelError) {
+      successUrl.searchParams.set("webPixelError", webPixelError)
+    }
 
     const response = NextResponse.redirect(successUrl)
 
