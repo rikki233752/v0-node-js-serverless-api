@@ -22,26 +22,7 @@ model PixelConfig {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Relations
-  shopConfigs ShopConfig[]
-
   @@index([pixelId])
-}
-
-model ShopConfig {
-  id              String    @id @default(cuid())
-  shopDomain      String    @unique
-  shopifyShopId   String?
-  pixelConfigId   String?
-  gatewayEnabled  Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  pixelConfig     PixelConfig? @relation(fields: [pixelConfigId], references: [id])
-
-  @@index([shopDomain])
-  @@index([pixelConfigId])
 }
 
 model EventLog {
@@ -50,7 +31,6 @@ model EventLog {
   eventName String
   status    String
   payload   String?
-  response  String?
   error     String?
   createdAt DateTime @default(now())
 

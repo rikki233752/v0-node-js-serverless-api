@@ -26,11 +26,11 @@ const prismaLogger = [
 
 // PrismaClient is attached to the `global` object in development to prevent
 // exhausting your database connection limit.
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined }
+const globalForPrisma = global as unknown as { prisma: PrismaClient }
 
 // Create a new PrismaClient instance with connection retry logic
 export const prisma =
-  globalForPrisma.prisma ??
+  globalForPrisma.prisma ||
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? prismaLogger : ["error"],
     datasources: {
@@ -114,33 +114,36 @@ export async function connectToDatabase(retries = 3, delay = 1000) {
 }
 
 // Helper function to safely execute database operations
-export async function executeWithRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
-  let lastError: Error
+export async function executeWithRetry<T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  let currentTry = 0
+  let lastError: any
 
-  for (let i = 0; i < maxRetries; i++) {
+  while (currentTry < retries) {
     try {
       return await operation()
-    } catch (error) {
-      lastError = error as Error
-      console.log(`Database operation failed (attempt ${i + 1}/${maxRetries}):`, error)
+    } catch (error: any) {
+      currentTry++
+      lastError = error
+      console.error(`Database operation attempt ${currentTry}/${retries} failed:`, error)
 
-      if (i < maxRetries - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (i + 1)))
+      // Check if this is a connection error that we should retry
+      const isConnectionError =
+        error.message.includes("Connection") ||
+        error.message.includes("timeout") ||
+        error.message.includes("closed") ||
+        error.code === "P1001" ||
+        error.code === "P1002"
+
+      if (currentTry >= retries || !isConnectionError) {
+        throw error
       }
+
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      // Increase delay for next retry (exponential backoff)
+      delay *= 2
     }
   }
 
-  throw lastError!
-}
-
-// Test database connection
-export async function testDatabaseConnection() {
-  try {
-    await prisma.$connect()
-    console.log("✅ Database connected successfully")
-    return true
-  } catch (error) {
-    console.error("❌ Database connection failed:", error)
-    return false
-  }
+  throw lastError
 }

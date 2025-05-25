@@ -2,79 +2,6 @@ import { type NextRequest, NextResponse } from "next/server"
 import { validateHmac, getAccessToken } from "@/lib/shopify"
 import { storeShopData } from "@/lib/db-auth"
 import { activateWebPixel } from "@/lib/shopify-graphql"
-import { prisma } from "@/lib/prisma"
-
-// Function to detect Facebook Pixel on the website
-async function detectFacebookPixel(shopDomain: string): Promise<string | null> {
-  try {
-    console.log("🔍 [Pixel Detection] Scanning website for Facebook Pixel:", shopDomain)
-
-    // Construct the shop URL
-    const shopUrl = shopDomain.includes("://") ? shopDomain : `https://${shopDomain}`
-
-    console.log("🌐 [Pixel Detection] Fetching website:", shopUrl)
-
-    // Fetch the website HTML
-    const response = await fetch(shopUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; FacebookPixelDetector/1.0)",
-      },
-      timeout: 10000, // 10 second timeout
-    })
-
-    if (!response.ok) {
-      console.log("⚠️ [Pixel Detection] Website fetch failed:", response.status)
-      return null
-    }
-
-    const html = await response.text()
-    console.log("✅ [Pixel Detection] Website HTML fetched, length:", html.length)
-
-    // Look for Facebook Pixel patterns
-    const pixelPatterns = [
-      // fbq('init', 'PIXEL_ID')
-      /fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/gi,
-      // Facebook Pixel script with pixel ID
-      /facebook\.net\/tr\?id=(\d+)/gi,
-      // Meta Pixel patterns
-      /meta-pixel['"]\s*content=['"](\d+)['"]/gi,
-      // Data-pixel-id attributes
-      /data-pixel-id=['"](\d+)['"]/gi,
-    ]
-
-    const detectedPixels = new Set<string>()
-
-    for (const pattern of pixelPatterns) {
-      let match
-      while ((match = pattern.exec(html)) !== null) {
-        const pixelId = match[1]
-        if (pixelId && pixelId.length >= 10) {
-          // Facebook Pixel IDs are typically 15+ digits
-          detectedPixels.add(pixelId)
-          console.log("🎯 [Pixel Detection] Found pixel ID:", pixelId)
-        }
-      }
-    }
-
-    if (detectedPixels.size === 0) {
-      console.log("❌ [Pixel Detection] No Facebook Pixel found on website")
-      return null
-    }
-
-    if (detectedPixels.size > 1) {
-      console.log("⚠️ [Pixel Detection] Multiple pixels found:", Array.from(detectedPixels))
-      // Return the first one found
-      return Array.from(detectedPixels)[0]
-    }
-
-    const detectedPixel = Array.from(detectedPixels)[0]
-    console.log("✅ [Pixel Detection] Single pixel detected:", detectedPixel)
-    return detectedPixel
-  } catch (error) {
-    console.error("💥 [Pixel Detection] Error scanning website:", error)
-    return null
-  }
-}
 
 // OAuth callback endpoint
 export async function GET(request: NextRequest) {
@@ -120,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     console.log("✅ Access token received successfully")
 
-    // Store shop data in database FIRST
+    // Store shop data in database
     await storeShopData({
       shop,
       accessToken,
@@ -129,72 +56,6 @@ export async function GET(request: NextRequest) {
     })
 
     console.log("💾 Shop data stored successfully")
-
-    // Clean and store the shop domain properly
-    const cleanShopDomain = shop
-      .replace(/^https?:\/\//, "")
-      .replace(/^www\./, "")
-      .replace(/\/$/, "")
-      .toLowerCase()
-
-    console.log("🏪 Processing shop domain:", { original: shop, cleaned: cleanShopDomain })
-
-    // DETECT FACEBOOK PIXEL ON THE WEBSITE
-    console.log("🔍 Starting Facebook Pixel detection...")
-    const detectedPixelId = await detectFacebookPixel(shop)
-
-    let pixelConfigId = null
-    let gatewayEnabled = false
-
-    if (detectedPixelId) {
-      console.log("🎯 Detected Facebook Pixel ID:", detectedPixelId)
-
-      // Check if this pixel is already configured by admin
-      const existingPixelConfig = await prisma.pixelConfig.findUnique({
-        where: { pixelId: detectedPixelId },
-      })
-
-      if (existingPixelConfig) {
-        console.log("✅ Pixel is already configured by admin!")
-        pixelConfigId = existingPixelConfig.id
-        gatewayEnabled = !!existingPixelConfig.accessToken // Enable if has access token
-      } else {
-        console.log("⚠️ Pixel detected but not configured by admin yet")
-        // Create a placeholder pixel config for admin to complete
-        const newPixelConfig = await prisma.pixelConfig.create({
-          data: {
-            pixelId: detectedPixelId,
-            name: `Auto-detected: ${cleanShopDomain}`,
-            accessToken: null, // Admin needs to add this
-          },
-        })
-        pixelConfigId = newPixelConfig.id
-        gatewayEnabled = false // Will be enabled when admin adds access token
-      }
-    } else {
-      console.log("❌ No Facebook Pixel detected on website")
-    }
-
-    // Create shop configuration entry with detected pixel
-    try {
-      const shopConfig = await prisma.shopConfig.upsert({
-        where: { shopDomain: cleanShopDomain },
-        update: {
-          pixelConfigId: pixelConfigId,
-          gatewayEnabled: gatewayEnabled,
-          updatedAt: new Date(),
-        },
-        create: {
-          shopDomain: cleanShopDomain,
-          pixelConfigId: pixelConfigId,
-          gatewayEnabled: gatewayEnabled,
-        },
-      })
-      console.log("✅ [OAuth] Shop config created/updated with pixel:", shopConfig)
-    } catch (dbError) {
-      console.error("💥 [OAuth] Database error creating shop config:", dbError)
-      // Continue with OAuth flow even if this fails
-    }
 
     // AUTOMATICALLY ACTIVATE WEB PIXEL
     console.log("🎯 Starting automatic Web Pixel activation...")
@@ -211,6 +72,8 @@ export async function GET(request: NextRequest) {
         webPixelId = webPixelResult.webPixel?.id
       } else {
         console.error("❌ Web Pixel activation failed:", webPixelResult.error)
+        console.error("📋 Details:", webPixelResult.details)
+        console.error("🔍 User errors:", webPixelResult.userErrors)
         webPixelStatus = "failed"
         webPixelError = webPixelResult.error
       }
@@ -221,11 +84,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Create success redirect with detailed status
-    const successUrl = new URL("/customer/setup", request.url)
+    const successUrl = new URL("/auth/success", request.url)
     successUrl.searchParams.set("shop", shop)
     successUrl.searchParams.set("status", "connected")
     successUrl.searchParams.set("webPixelStatus", webPixelStatus)
-    successUrl.searchParams.set("detectedPixel", detectedPixelId || "none")
 
     if (webPixelId) {
       successUrl.searchParams.set("webPixelId", webPixelId)
@@ -259,14 +121,12 @@ export async function GET(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 30,
     })
 
-    console.log("🏁 Redirecting to customer setup page")
-    console.log("   🎯 Detected Pixel:", detectedPixelId || "none")
-    console.log("   ✅ Gateway Enabled:", gatewayEnabled)
+    console.log("🏁 Redirecting to success page with Web Pixel status:", webPixelStatus)
     return response
   } catch (error) {
     console.error("💥 OAuth callback error:", error)
     const errorUrl = new URL("/api/auth/error", request.url)
-    errorUrl.searchParams.set("error", error instanceof Error ? error.message : "Unknown error")
+    errorUrl.searchParams.set("error", error.message)
     return NextResponse.redirect(errorUrl)
   }
 }
