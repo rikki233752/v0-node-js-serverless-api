@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { ShopifyGraphQLClient } from "@/lib/shopify-graphql"
+import { prisma } from "@/lib/prisma"
 
 const WEB_PIXEL_CREATE_MUTATION = `
   mutation webPixelCreate($webPixel: WebPixelInput!) {
@@ -27,16 +28,34 @@ export async function POST(request: Request) {
 
     console.log("Activating Web Pixel for shop:", shop)
 
+    // Get shop data from database
+    const shopData = await prisma.shopConfig.findUnique({
+      where: { shopDomain: shop },
+      include: { pixelConfig: true },
+    })
+
+    if (!shopData) {
+      return NextResponse.json({ error: "Shop not found in database" }, { status: 404 })
+    }
+
+    if (!shopData.accessToken) {
+      return NextResponse.json({ error: "Shop missing access token" }, { status: 400 })
+    }
+
     // Create GraphQL client
-    const client = await ShopifyGraphQLClient.fromShop(shop)
+    const client = new ShopifyGraphQLClient(shop, shopData.accessToken)
+
+    // Get pixel ID from various sources
+    const finalPixelId =
+      pixelId || shopData.pixelConfig?.pixelId || accountID || process.env.FACEBOOK_PIXEL_ID || "584928510540140" // Default test pixel ID
 
     // Prepare the settings according to your shopify.extension.toml
     const settings = {
-      accountID: accountID || "facebook-pixel-gateway",
-      pixelId: pixelId || process.env.FACEBOOK_PIXEL_ID || "",
-      gatewayUrl:
-        gatewayUrl || process.env.HOST + "/api/track" || "https://v0-node-js-serverless-api-lake.vercel.app/api/track",
-      debug: debug || false,
+      accountID: finalPixelId,
+      pixelId: finalPixelId,
+      gatewayUrl: gatewayUrl || `${process.env.HOST || "https://v0-node-js-serverless-api-lake.vercel.app"}/api/track`,
+      debug: debug || true,
+      timestamp: new Date().toISOString(),
     }
 
     // Convert settings to JSON string as required by Shopify
@@ -82,6 +101,15 @@ export async function POST(request: Request) {
     }
 
     const webPixel = result.webPixelCreate.webPixel
+
+    // Update the shop config with the web pixel ID
+    await prisma.shopConfig.update({
+      where: { shopDomain: shop },
+      data: {
+        webPixelId: webPixel.id,
+        updatedAt: new Date(),
+      },
+    })
 
     return NextResponse.json({
       success: true,

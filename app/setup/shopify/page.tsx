@@ -1,169 +1,169 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { ArrowLeft, ShoppingBag, AlertCircle } from "lucide-react"
-import Link from "next/link"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Info, ArrowRight, Store } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
 
 export default function ShopifySetupPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const [shopDomain, setShopDomain] = useState("")
+
+  const [shopUrl, setShopUrl] = useState("")
   const [pixelId, setPixelId] = useState("")
-  const [isInstalling, setIsInstalling] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Pre-fill pixel ID from URL parameters
+  // Check for UTM parameters
   useEffect(() => {
-    const urlPixelId = searchParams.get("pixel_id") || searchParams.get("utm_pixel_id")
-    if (urlPixelId) {
-      setPixelId(urlPixelId)
-      // Store in session storage to persist through OAuth flow
-      sessionStorage.setItem("pixelId", urlPixelId)
-    } else {
-      // Check if we have a stored pixel ID from previous session
-      const storedPixelId = sessionStorage.getItem("pixelId")
-      if (storedPixelId) {
-        setPixelId(storedPixelId)
-      }
+    const utmPixelId = searchParams.get("utm_pixel_id") || searchParams.get("pixel_id")
+    if (utmPixelId) {
+      setPixelId(utmPixelId)
     }
   }, [searchParams])
 
-  const normalizeShopifyDomain = (domain: string): string => {
-    let normalizedDomain = domain.trim().toLowerCase()
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
 
-    // Remove protocol if present
-    normalizedDomain = normalizedDomain.replace(/^https?:\/\//, "")
-
-    // Remove trailing slash if present
-    normalizedDomain = normalizedDomain.replace(/\/$/, "")
-
-    // If it's not a myshopify.com domain, add it
-    if (!normalizedDomain.includes("myshopify.com")) {
-      // Check if it's a subdomain or just a name
-      if (normalizedDomain.includes(".")) {
-        // It's likely a custom domain, try to convert to myshopify format
-        // This is a best guess - the OAuth process will validate
-        const parts = normalizedDomain.split(".")
-        normalizedDomain = `${parts[0]}.myshopify.com`
-      } else {
-        // It's just a shop name
-        normalizedDomain = `${normalizedDomain}.myshopify.com`
-      }
+    if (!shopUrl) {
+      setError("Please enter your Shopify store URL")
+      return
     }
 
-    return normalizedDomain
-  }
+    if (!pixelId) {
+      setError("Please enter your Facebook Pixel ID")
+      return
+    }
 
-  const handleInstall = async () => {
-    setError(null)
-    setIsInstalling(true)
+    setIsLoading(true)
 
     try {
-      // Validate inputs
-      if (!shopDomain.trim()) {
-        throw new Error("Please enter your Shopify store URL")
+      // Clean up the shop URL to ensure it's in the correct format
+      let cleanShopUrl = shopUrl.trim().toLowerCase()
+
+      // Remove protocol if present
+      cleanShopUrl = cleanShopUrl.replace(/^https?:\/\//, "")
+
+      // Remove trailing slash if present
+      cleanShopUrl = cleanShopUrl.replace(/\/$/, "")
+
+      // If it doesn't end with myshopify.com, add it
+      if (!cleanShopUrl.endsWith(".myshopify.com")) {
+        // Check if it's a custom domain or missing the myshopify.com part
+        if (cleanShopUrl.includes(".")) {
+          // It's likely a custom domain, we need to convert it to myshopify format
+          // Store this in session storage for later use
+          sessionStorage.setItem("originalShopDomain", cleanShopUrl)
+
+          // For now, we'll show an error and ask for myshopify.com domain
+          setError("Please enter your .myshopify.com URL. Custom domains are not supported for installation.")
+          setIsLoading(false)
+          return
+        } else {
+          // It's missing the myshopify.com part
+          cleanShopUrl = `${cleanShopUrl}.myshopify.com`
+        }
       }
 
-      if (!pixelId.trim()) {
-        throw new Error("Please enter your Facebook Pixel ID")
-      }
-
-      // Validate pixel ID format
-      if (!/^\d+$/.test(pixelId)) {
-        throw new Error("Please enter a valid Facebook Pixel ID (numbers only)")
-      }
-
-      // Normalize the shop domain
-      const normalizedDomain = normalizeShopifyDomain(shopDomain)
-
-      // Store pixel ID in session storage to retrieve after OAuth
+      // Store the pixel ID in session storage to persist through OAuth
       sessionStorage.setItem("pixelId", pixelId)
 
-      // Redirect to install endpoint with shop and pixel ID
-      window.location.href = `/api/install?shop=${encodeURIComponent(normalizedDomain)}&pixelId=${encodeURIComponent(pixelId)}`
-    } catch (error) {
-      setError(error.message)
-      setIsInstalling(false)
+      // Redirect to the install endpoint
+      window.location.href = `/api/install?shop=${encodeURIComponent(cleanShopUrl)}&pixelId=${encodeURIComponent(pixelId)}`
+    } catch (err) {
+      console.error("Installation error:", err)
+      setError("An error occurred during installation. Please try again.")
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-3xl">
-        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-6">
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Home
-        </Link>
+    <div className="container mx-auto py-8 px-4 max-w-md">
+      <h1 className="text-3xl font-bold text-center mb-8">Connect Your Shopify Store</h1>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <ShoppingBag className="h-8 w-8 text-blue-600" />
-              <div>
-                <CardTitle className="text-2xl">Install on Shopify</CardTitle>
-                <CardDescription>Connect your Shopify store with Facebook Pixel</CardDescription>
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Store className="h-5 w-5" />
+            Shopify Installation
+          </CardTitle>
+          <CardDescription>Connect your Shopify store to start tracking Facebook Pixel events</CardDescription>
+        </CardHeader>
+
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertTitle>Important</AlertTitle>
+              <AlertDescription>
+                You'll need to have admin access to your Shopify store and your Facebook Pixel ID ready.
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              <Label htmlFor="shopUrl">Shopify Store URL</Label>
+              <Input
+                id="shopUrl"
+                placeholder="your-store.myshopify.com"
+                value={shopUrl}
+                onChange={(e) => setShopUrl(e.target.value)}
+                required
+              />
+              <p className="text-xs text-gray-500">Enter your .myshopify.com URL, not your custom domain</p>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
+
+            <div className="space-y-2">
+              <Label htmlFor="pixelId">Facebook Pixel ID</Label>
+              <Input
+                id="pixelId"
+                placeholder="123456789012345"
+                value={pixelId}
+                onChange={(e) => setPixelId(e.target.value)}
+                required
+              />
+              <p className="text-xs text-gray-500">Find this in your Facebook Business Manager under Events Manager</p>
+            </div>
+
             {error && (
               <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="shop-domain">Shopify Store URL</Label>
-                <Input
-                  id="shop-domain"
-                  type="text"
-                  placeholder="yourstore.myshopify.com or custom domain"
-                  value={shopDomain}
-                  onChange={(e) => setShopDomain(e.target.value)}
-                  className="mt-1"
-                  disabled={isInstalling}
-                />
-                <p className="text-sm text-gray-500 mt-1">Enter your .myshopify.com URL or your custom domain</p>
-              </div>
-
-              <div>
-                <Label htmlFor="pixel-id">Facebook Pixel ID</Label>
-                <Input
-                  id="pixel-id"
-                  type="text"
-                  placeholder="e.g., 123456789012345"
-                  value={pixelId}
-                  onChange={(e) => setPixelId(e.target.value)}
-                  className="mt-1"
-                  disabled={isInstalling}
-                />
-                <p className="text-sm text-gray-500 mt-1">Find this in your Facebook Events Manager</p>
-              </div>
-            </div>
-
-            <Button onClick={handleInstall} className="w-full" size="lg" disabled={isInstalling}>
-              {isInstalling ? "Installing..." : "Install on Shopify"}
-            </Button>
-
-            <div className="text-center text-sm text-gray-500 pt-4 border-t">
-              Need help? Check our{" "}
-              <Link href="/integration-guide" className="text-blue-600 hover:underline">
-                integration guide
-              </Link>{" "}
-              or{" "}
-              <Link href="/contact" className="text-blue-600 hover:underline">
-                contact support
-              </Link>
-            </div>
           </CardContent>
-        </Card>
+
+          <CardFooter>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <span className="animate-spin mr-2">⟳</span>
+                  Installing...
+                </>
+              ) : (
+                <>
+                  Install App
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </>
+              )}
+            </Button>
+          </CardFooter>
+        </form>
+      </Card>
+
+      <div className="mt-8 text-center">
+        <p className="text-sm text-gray-500">
+          Not using Shopify?{" "}
+          <a href="/setup/website" className="text-blue-600 hover:underline">
+            Set up for any website
+          </a>
+        </p>
       </div>
     </div>
   )

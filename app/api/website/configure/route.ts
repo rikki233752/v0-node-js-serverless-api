@@ -1,39 +1,45 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const { pixelId, accessToken } = await request.json()
 
-    // Validate inputs
-    if (!pixelId || !accessToken) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!pixelId) {
+      return NextResponse.json({ error: "Pixel ID is required" }, { status: 400 })
     }
 
-    // Create or update pixel configuration
+    // Create or update the pixel configuration
     const pixelConfig = await prisma.pixelConfig.upsert({
       where: { pixelId },
       update: {
-        accessToken,
+        accessToken: accessToken || undefined,
+        updatedAt: new Date(),
       },
       create: {
         pixelId,
         name: `Pixel ${pixelId}`,
-        accessToken,
+        accessToken: accessToken || undefined,
       },
     })
 
     return NextResponse.json({
       success: true,
-      message: "Configuration saved successfully",
       pixelConfig: {
         id: pixelConfig.id,
         pixelId: pixelConfig.pixelId,
         name: pixelConfig.name,
+        hasAccessToken: !!pixelConfig.accessToken,
       },
     })
   } catch (error) {
-    console.error("Error saving pixel configuration:", error)
-    return NextResponse.json({ error: "Failed to save configuration" }, { status: 500 })
+    console.error("Error configuring website:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    )
   }
 }

@@ -1,38 +1,32 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 
-// Store the most recent pixel data
-let lastPixelData: any = null
+// Store the latest data from the Web Pixel
+let latestData: any = null
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   return NextResponse.json(
-    lastPixelData || {
+    latestData || {
       timestamp: new Date().toISOString(),
-      message: "No pixel data received yet",
+      message: "No data received yet from Web Pixel extension",
     },
   )
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const data = await request.json()
 
-    // Store the data
-    lastPixelData = {
-      timestamp: new Date().toISOString(),
+    // Store the latest data
+    latestData = {
       ...data,
+      timestamp: new Date().toISOString(),
     }
 
-    console.log("📊 [Web Pixel Debug] Received data:", {
-      shop: data.shop,
-      configAccountId: data.configAccountId,
-      hasConfigData: !!data.configData,
-      hasAnalyticsData: !!data.analyticsData,
-      detectedPixels: data.detectedPixels?.length || 0,
-    })
+    console.log("Received Web Pixel debug data:", data)
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("💥 [Web Pixel Debug] Error processing data:", error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 400 })
+    console.error("Error processing Web Pixel debug data:", error)
+    return NextResponse.json({ error: "Failed to process data" }, { status: 400 })
   }
 }

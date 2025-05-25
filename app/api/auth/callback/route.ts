@@ -1,194 +1,171 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { validateHmac, getAccessToken } from "@/lib/shopify"
-import { storeShopData } from "@/lib/db-auth"
-import { activateWebPixel } from "@/lib/shopify-graphql"
 import { prisma } from "@/lib/prisma"
+import { activateWebPixel } from "@/lib/shopify-graphql"
 
-// OAuth callback endpoint with pixel ID support
+// Function to detect Facebook Pixel ID from a website
+async function detectFacebookPixel(url: string): Promise<string | null> {
+  try {
+    console.log(`🔍 Attempting to detect Facebook Pixel ID from ${url}`)
+
+    // Fetch the website HTML
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+      },
+    })
+
+    if (!response.ok) {
+      console.log(`❌ Failed to fetch website: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const html = await response.text()
+
+    // Common patterns for Facebook Pixel ID
+    const patterns = [
+      /fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/i, // fbq('init', '123456789')
+      /fbq\s*\(\s*["']init["'],\s*["'](\d+)["']/i, // fbq("init", "123456789")
+      /pixel_id\s*[:=]\s*['"](\d+)['"]/i, // pixel_id: '123456789'
+      /pixelId\s*[:=]\s*['"](\d+)['"]/i, // pixelId: '123456789'
+      /<meta[^>]*content=["'](\d{15,16})["'][^>]*property=["']fb:app_id["']/i, // Meta tag
+      /facebook\.com\/tr\?id=(\d+)/i, // facebook.com/tr?id=123456789
+      /connect\.facebook\.net\/en_US\/fbevents\.js[^>]+id=(\d+)/i, // connect.facebook.net/en_US/fbevents.js?id=123456789
+    ]
+
+    // Try each pattern
+    for (const pattern of patterns) {
+      const match = html.match(pattern)
+      if (match && match[1]) {
+        console.log(`✅ Detected Facebook Pixel ID: ${match[1]} using pattern: ${pattern}`)
+        return match[1]
+      }
+    }
+
+    console.log(`❌ No Facebook Pixel ID detected in website HTML`)
+    return null
+  } catch (error) {
+    console.error(`❌ Error detecting Facebook Pixel ID:`, error)
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url)
-
-    // Extract parameters
-    const shop = url.searchParams.get("shop")
     const code = url.searchParams.get("code")
+    const shop = url.searchParams.get("shop")
     const state = url.searchParams.get("state")
-    const hmac = url.searchParams.get("hmac")
 
-    console.log("🔐 OAuth callback for shop:", shop)
+    console.log("OAuth callback received:", { shop, code: code ? "✓" : "✗", state: state ? "✓" : "✗" })
 
-    // Basic validation
-    if (!shop || !code || !hmac) {
-      const missingParams = []
-      if (!shop) missingParams.push("shop")
-      if (!code) missingParams.push("code")
-      if (!hmac) missingParams.push("hmac")
-
-      console.error("❌ Missing critical parameters:", missingParams)
-      const errorUrl = new URL("/api/auth/error", request.url)
-      errorUrl.searchParams.set("error", `Missing critical parameters: ${missingParams.join(", ")}`)
-      return NextResponse.redirect(errorUrl)
+    if (!shop || !code) {
+      console.error("Missing required parameters:", { shop, code: code ? "✓" : "✗" })
+      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=missing_params`)
     }
 
-    // Extract pixel ID from state if provided
+    // Parse state parameter for pixel ID
     let pixelId = null
     if (state) {
       try {
         const decodedState = JSON.parse(Buffer.from(state, "base64").toString())
         pixelId = decodedState.pixelId
-        console.log("📊 Pixel ID from state:", pixelId)
+        console.log("Extracted pixel ID from state:", pixelId)
       } catch (e) {
-        console.log("⚠️ Could not parse state, might be legacy format")
+        console.error("Failed to parse state parameter:", e)
       }
     }
 
-    // Check session storage for pixel ID (fallback)
-    if (!pixelId) {
-      // In a real implementation, you'd need to pass this through the OAuth flow
-      // For now, we'll try to detect it
-      console.log("⚠️ No pixel ID in state, will attempt detection")
-    }
-
-    // Verify HMAC signature from Shopify
-    if (!validateHmac(request)) {
-      console.error("❌ HMAC validation failed")
-      const errorUrl = new URL("/api/auth/error", request.url)
-      errorUrl.searchParams.set("error", "Invalid HMAC signature")
-      return NextResponse.redirect(errorUrl)
-    }
-
-    // Exchange authorization code for access token
-    console.log("🔄 Exchanging code for access token...")
-    const accessToken = await getAccessToken(shop, code)
-
-    if (!accessToken) {
-      throw new Error("Failed to obtain access token from Shopify")
-    }
-
-    console.log("✅ Access token received successfully")
-
-    // Store shop data in database
-    await storeShopData({
-      shop,
-      accessToken,
-      scopes: process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events",
-      installed: true,
+    // Exchange code for access token
+    const accessTokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_API_KEY,
+        client_secret: process.env.SHOPIFY_API_SECRET,
+        code,
+      }),
     })
 
-    console.log("💾 Shop data stored successfully")
+    if (!accessTokenResponse.ok) {
+      console.error("Failed to get access token:", await accessTokenResponse.text())
+      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=token_exchange`)
+    }
 
-    // Clean shop domain
-    const cleanShopDomain = shop
+    const { access_token } = await accessTokenResponse.json()
+
+    // Clean up shop domain
+    const cleanShop = shop
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
       .replace(/\/$/, "")
       .toLowerCase()
 
-    // Handle pixel configuration
-    let pixelConfigId = null
-    let gatewayEnabled = false
+    console.log("Storing access token for shop:", cleanShop)
 
-    if (pixelId) {
-      console.log("🎯 Using provided Facebook Pixel ID:", pixelId)
+    // If no pixel ID provided, try to detect it
+    if (!pixelId) {
+      try {
+        console.log("No pixel ID provided, attempting to detect from shop website")
+        pixelId = await detectFacebookPixel(`https://${cleanShop}`)
+        console.log("Pixel detection result:", pixelId)
+      } catch (error) {
+        console.error("Error detecting pixel:", error)
+      }
+    }
 
-      // Check if this pixel is already configured
-      const existingPixelConfig = await prisma.pixelConfig.findUnique({
-        where: { pixelId: pixelId },
-      })
-
-      if (existingPixelConfig) {
-        console.log("✅ Pixel is already configured!")
-        pixelConfigId = existingPixelConfig.id
-        gatewayEnabled = !!existingPixelConfig.accessToken
-      } else {
-        console.log("📝 Creating new pixel configuration")
-        // Create a new pixel config
-        const newPixelConfig = await prisma.pixelConfig.create({
-          data: {
-            pixelId: pixelId,
-            name: `Pixel for ${cleanShopDomain}`,
-            accessToken: null, // Customer needs to add this later
+    // Store shop data in database
+    try {
+      // Create or update pixel config if we have a pixel ID
+      let pixelConfigId = null
+      if (pixelId) {
+        const pixelConfig = await prisma.pixelConfig.upsert({
+          where: { pixelId },
+          update: {},
+          create: {
+            pixelId,
+            name: `Pixel for ${cleanShop}`,
           },
         })
-        pixelConfigId = newPixelConfig.id
-        gatewayEnabled = false
+        pixelConfigId = pixelConfig.id
+        console.log("Created/updated pixel config:", pixelConfig)
       }
-    }
 
-    // Create/update shop configuration
-    try {
-      const shopConfig = await prisma.shopConfig.upsert({
-        where: { shopDomain: cleanShopDomain },
+      // Create or update shop config
+      await prisma.shopConfig.upsert({
+        where: { shopDomain: cleanShop },
         update: {
-          pixelConfigId: pixelConfigId,
-          gatewayEnabled: gatewayEnabled,
+          accessToken: access_token,
           updatedAt: new Date(),
+          ...(pixelConfigId ? { pixelConfigId } : {}),
         },
         create: {
-          shopDomain: cleanShopDomain,
-          pixelConfigId: pixelConfigId,
-          gatewayEnabled: gatewayEnabled,
+          shopDomain: cleanShop,
+          accessToken: access_token,
+          ...(pixelConfigId ? { pixelConfigId } : {}),
         },
       })
-      console.log("✅ Shop config created/updated:", shopConfig)
-    } catch (dbError) {
-      console.error("💥 Database error creating shop config:", dbError)
-    }
 
-    // Activate Web Pixel with the provided pixel ID
-    console.log("🎯 Starting Web Pixel activation...")
-    let webPixelStatus = "not_attempted"
-    let webPixelError = null
-    let webPixelId = null
-
-    try {
-      const webPixelResult = await activateWebPixel(shop, accessToken, pixelId)
-
-      if (webPixelResult.success) {
-        console.log("🎉 Web Pixel activated successfully:", webPixelResult.webPixel?.id)
-        webPixelStatus = "success"
-        webPixelId = webPixelResult.webPixel?.id
-      } else {
-        console.error("❌ Web Pixel activation failed:", webPixelResult.error)
-        webPixelStatus = "failed"
-        webPixelError = webPixelResult.error
-      }
+      console.log("Shop data stored successfully")
     } catch (error) {
-      console.error("💥 Exception during Web Pixel activation:", error)
-      webPixelStatus = "error"
-      webPixelError = error instanceof Error ? error.message : "Unknown error"
+      console.error("Error storing shop data:", error)
+      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=database`)
     }
 
-    // Redirect to customer setup page
-    const successUrl = new URL("/customer/setup", request.url)
-    successUrl.searchParams.set("shop", shop)
-    successUrl.searchParams.set("status", "connected")
-    successUrl.searchParams.set("webPixelStatus", webPixelStatus)
-    successUrl.searchParams.set("pixelId", pixelId || "none")
-
-    if (webPixelId) {
-      successUrl.searchParams.set("webPixelId", webPixelId)
+    // Activate Web Pixel
+    try {
+      console.log("Activating Web Pixel for shop:", cleanShop)
+      const result = await activateWebPixel(cleanShop, access_token, pixelId)
+      console.log("Web Pixel activation result:", result)
+    } catch (error) {
+      console.error("Error activating Web Pixel:", error)
+      // Continue even if Web Pixel activation fails
     }
 
-    const response = NextResponse.redirect(successUrl)
-
-    // Set cookies
-    response.cookies.set({
-      name: "shopify_shop",
-      value: shop,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    })
-
-    console.log("🏁 Redirecting to customer setup page")
-    return response
+    // Redirect to success page
+    return NextResponse.redirect(`${process.env.HOST || ""}/auth/success?shop=${encodeURIComponent(cleanShop)}`)
   } catch (error) {
-    console.error("💥 OAuth callback error:", error)
-    const errorUrl = new URL("/api/auth/error", request.url)
-    errorUrl.searchParams.set("error", error instanceof Error ? error.message : "Unknown error")
-    return NextResponse.redirect(errorUrl)
+    console.error("OAuth callback error:", error)
+    return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=unknown`)
   }
 }
