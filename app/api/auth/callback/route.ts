@@ -1,132 +1,204 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { validateHmac, getAccessToken } from "@/lib/shopify"
-import { storeShopData } from "@/lib/db-auth"
-import { activateWebPixel } from "@/lib/shopify-graphql"
+import { prisma } from "@/lib/db"
 
-// OAuth callback endpoint
+// Helper function to extract Facebook Pixel ID from HTML
+function extractFacebookPixelId(html: string): string | null {
+  // Define all regex patterns to search for Facebook Pixel ID
+  const patterns = [
+    // fbq('init', 'PIXEL_ID')
+    /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/gi,
+
+    // facebook.net/tr?id=PIXEL_ID
+    /facebook\.net\/tr\?id=(\d{15,16})/gi,
+
+    // facebook.net/.*?id=PIXEL_ID (more general pattern)
+    /facebook\.net\/[^?]*\?[^#]*id=(\d{15,16})/gi,
+
+    // <meta name="meta-pixel" content="PIXEL_ID">
+    /<meta[^>]+name=["']?meta-pixel["']?[^>]+content=["']?(\d{15,16})["']?/gi,
+
+    // data-pixel-id="PIXEL_ID"
+    /data-pixel-id=["']?(\d{15,16})["']?/gi,
+
+    // "facebook_pixel_id": "PIXEL_ID"
+    /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/gi,
+
+    // shopify.analytics.meta_pixel_id = "PIXEL_ID"
+    /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/gi,
+
+    // gtm: "PIXEL_ID" (in various contexts)
+    /gtm[^"']*["']?\s*:\s*["']?(\d{15,16})["']?/gi,
+  ]
+
+  // Try each pattern and return the first match found
+  for (const pattern of patterns) {
+    const match = pattern.exec(html)
+    if (match && match[1]) {
+      console.log(`✅ Found Pixel ID using pattern: ${pattern.source}`)
+      return match[1]
+    }
+  }
+
+  // If no match found, try a more general pattern for any 15-16 digit number that looks like a pixel ID
+  const generalPattern = /(?:pixel[_-]?id|fbq|facebook)[^0-9]*(\d{15,16})/gi
+  const generalMatch = generalPattern.exec(html)
+  if (generalMatch && generalMatch[1]) {
+    console.log(`✅ Found Pixel ID using general pattern`)
+    return generalMatch[1]
+  }
+
+  return null
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const url = new URL(request.url)
+    const { searchParams } = new URL(request.url)
+    const shop = searchParams.get("shop")
 
-    // Extract parameters
-    const shop = url.searchParams.get("shop")
-    const code = url.searchParams.get("code")
-    const state = url.searchParams.get("state")
-    const hmac = url.searchParams.get("hmac")
-
-    console.log("🔐 OAuth callback for shop:", shop)
-
-    // Basic validation
-    if (!shop || !code || !hmac) {
-      const missingParams = []
-      if (!shop) missingParams.push("shop")
-      if (!code) missingParams.push("code")
-      if (!hmac) missingParams.push("hmac")
-
-      console.error("❌ Missing critical parameters:", missingParams)
-      const errorUrl = new URL("/api/auth/error", request.url)
-      errorUrl.searchParams.set("error", `Missing critical parameters: ${missingParams.join(", ")}`)
-      return NextResponse.redirect(errorUrl)
+    // Validate shop parameter
+    if (!shop) {
+      return NextResponse.json({ success: false, error: "Shop parameter is required" }, { status: 400 })
     }
 
-    // Verify HMAC signature from Shopify
-    if (!validateHmac(request)) {
-      console.error("❌ HMAC validation failed")
-      const errorUrl = new URL("/api/auth/error", request.url)
-      errorUrl.searchParams.set("error", "Invalid HMAC signature")
-      return NextResponse.redirect(errorUrl)
+    console.log(`🔐 Processing callback for shop: ${shop}`)
+
+    // Clean and normalize the shop domain
+    const cleanShop = shop
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .toLowerCase()
+      .trim()
+
+    // Validate shop domain format
+    if (!cleanShop.includes(".myshopify.com") && !cleanShop.includes(".")) {
+      return NextResponse.json({ success: false, error: "Invalid shop domain format" }, { status: 400 })
     }
-
-    // Exchange authorization code for access token
-    console.log("🔄 Exchanging code for access token...")
-    const accessToken = await getAccessToken(shop, code)
-
-    if (!accessToken) {
-      throw new Error("Failed to obtain access token from Shopify")
-    }
-
-    console.log("✅ Access token received successfully")
-
-    // Store shop data in database
-    await storeShopData({
-      shop,
-      accessToken,
-      scopes: process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events",
-      installed: true,
-    })
-
-    console.log("💾 Shop data stored successfully")
-
-    // AUTOMATICALLY ACTIVATE WEB PIXEL
-    console.log("🎯 Starting automatic Web Pixel activation...")
-    let webPixelStatus = "not_attempted"
-    let webPixelError = null
-    let webPixelId = null
 
     try {
-      const webPixelResult = await activateWebPixel(shop, accessToken)
+      // Fetch the storefront HTML
+      console.log(`🔍 Fetching storefront HTML from https://${cleanShop}`)
 
-      if (webPixelResult.success) {
-        console.log("🎉 Web Pixel activated successfully:", webPixelResult.webPixel?.id)
-        webPixelStatus = "success"
-        webPixelId = webPixelResult.webPixel?.id
-      } else {
-        console.error("❌ Web Pixel activation failed:", webPixelResult.error)
-        console.error("📋 Details:", webPixelResult.details)
-        console.error("🔍 User errors:", webPixelResult.userErrors)
-        webPixelStatus = "failed"
-        webPixelError = webPixelResult.error
+      const response = await fetch(`https://${cleanShop}`, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.5",
+          "Cache-Control": "no-cache",
+        },
+      })
+
+      if (!response.ok) {
+        console.error(`❌ Failed to fetch storefront: ${response.status} ${response.statusText}`)
+        throw new Error(`Failed to fetch storefront: ${response.status}`)
       }
-    } catch (error) {
-      console.error("💥 Exception during Web Pixel activation:", error)
-      webPixelStatus = "error"
-      webPixelError = error instanceof Error ? error.message : "Unknown error"
+
+      const html = await response.text()
+      console.log(`📄 Fetched ${html.length} characters of HTML`)
+
+      // Extract Facebook Pixel ID
+      const pixelId = extractFacebookPixelId(html)
+
+      if (pixelId) {
+        console.log(`🎯 Found Facebook Pixel ID: ${pixelId}`)
+
+        // Check if PixelConfig already exists
+        let pixelConfig = await prisma.pixelConfig.findUnique({
+          where: { pixelId },
+        })
+
+        // If pixel doesn't exist, create it
+        if (!pixelConfig) {
+          console.log(`📝 Creating new PixelConfig for Pixel ID: ${pixelId}`)
+          pixelConfig = await prisma.pixelConfig.create({
+            data: {
+              pixelId,
+              accessToken: "PENDING_CONFIGURATION",
+              name: `Auto-detected pixel for ${cleanShop}`,
+            },
+          })
+        } else {
+          console.log(`📋 Using existing PixelConfig for Pixel ID: ${pixelId}`)
+        }
+
+        // Upsert ShopConfig with pixel configuration
+        const shopConfig = await prisma.shopConfig.upsert({
+          where: { shopDomain: cleanShop },
+          update: {
+            pixelConfigId: pixelConfig.id,
+            gatewayEnabled: true,
+          },
+          create: {
+            shopDomain: cleanShop,
+            pixelConfigId: pixelConfig.id,
+            gatewayEnabled: true,
+          },
+        })
+
+        console.log(`✅ Successfully linked shop ${cleanShop} to Pixel ID ${pixelId}`)
+
+        return NextResponse.json({
+          success: true,
+          shop: cleanShop,
+          pixelId,
+          configurationStatus: "linked",
+        })
+      } else {
+        console.log(`⚠️ No Facebook Pixel ID found for shop ${cleanShop}`)
+
+        // Upsert ShopConfig without pixel configuration
+        await prisma.shopConfig.upsert({
+          where: { shopDomain: cleanShop },
+          update: {
+            pixelConfigId: null,
+            gatewayEnabled: false,
+          },
+          create: {
+            shopDomain: cleanShop,
+            pixelConfigId: null,
+            gatewayEnabled: false,
+          },
+        })
+
+        return NextResponse.json({
+          success: true,
+          shop: cleanShop,
+          pixelId: null,
+          configurationStatus: "shop_exists_no_pixel",
+        })
+      }
+    } catch (fetchError) {
+      console.error(`💥 Error fetching storefront:`, fetchError)
+
+      // Still create/update shop config even if fetch fails
+      await prisma.shopConfig.upsert({
+        where: { shopDomain: cleanShop },
+        update: {
+          gatewayEnabled: false,
+        },
+        create: {
+          shopDomain: cleanShop,
+          gatewayEnabled: false,
+        },
+      })
+
+      return NextResponse.json({
+        success: false,
+        shop: cleanShop,
+        pixelId: null,
+        configurationStatus: "shop_exists_no_pixel",
+        error: fetchError instanceof Error ? fetchError.message : "Failed to fetch storefront",
+      })
     }
-
-    // Create success redirect with detailed status
-    const successUrl = new URL("/auth/success", request.url)
-    successUrl.searchParams.set("shop", shop)
-    successUrl.searchParams.set("status", "connected")
-    successUrl.searchParams.set("webPixelStatus", webPixelStatus)
-
-    if (webPixelId) {
-      successUrl.searchParams.set("webPixelId", webPixelId)
-    }
-
-    if (webPixelError) {
-      successUrl.searchParams.set("webPixelError", encodeURIComponent(webPixelError))
-    }
-
-    const response = NextResponse.redirect(successUrl)
-
-    // Set cookies
-    response.cookies.delete("shopify_nonce")
-    response.cookies.set({
-      name: "shopify_install_success",
-      value: "true",
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 5,
-    })
-
-    response.cookies.set({
-      name: "shopify_shop",
-      value: shop,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    })
-
-    console.log("🏁 Redirecting to success page with Web Pixel status:", webPixelStatus)
-    return response
   } catch (error) {
-    console.error("💥 OAuth callback error:", error)
-    const errorUrl = new URL("/api/auth/error", request.url)
-    errorUrl.searchParams.set("error", error.message)
-    return NextResponse.redirect(errorUrl)
+    console.error("💥 Callback error:", error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Internal server error",
+      },
+      { status: 500 },
+    )
   }
 }

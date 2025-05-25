@@ -1,0 +1,13 @@
+type = "web_pixel"
+name = "Fixed Pixel"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.pixelId]
+name = "Facebook Pixel ID"
+description = "Your Facebook Pixel ID"
+type = "single_line_text_field"
+default = "864857281256627"

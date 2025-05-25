@@ -1,0 +1,7 @@
+type = "web_pixel"
+name = "Minimal Pixel"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"

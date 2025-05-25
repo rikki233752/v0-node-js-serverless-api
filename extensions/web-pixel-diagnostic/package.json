@@ -1,0 +1,8 @@
+{
+  "name": "web-pixel-diagnostic",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "dependencies": {
+    "@shopify/web-pixels-extension": "^0.1.0"
+  }
+}

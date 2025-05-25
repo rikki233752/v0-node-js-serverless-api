@@ -1,0 +1,14 @@
+api_version = "2024-01"
+
+[[extensions]]
+type = "web_pixel_extension"
+name = "Web Pixel Beacon"
+runtime_context = "strict"
+
+[extensions.runtime_configuration_definition]
+  [extensions.runtime_configuration_definition.schema]
+    [[extensions.runtime_configuration_definition.schema.fields]]
+      key = "pixelId"
+      name = "Pixel ID"
+      type = "string"
+      required = false

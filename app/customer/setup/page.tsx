@@ -18,6 +18,7 @@ export default function CustomerSetup() {
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(true)
   const [configured, setConfigured] = useState(false)
+  const [pixelExists, setPixelExists] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
@@ -58,6 +59,11 @@ export default function CustomerSetup() {
           setPixelName(data.pixelName)
         }
       }
+
+      // Check if the pixel ID exists in the database
+      const pixelResponse = await fetch(`/api/customer/check-pixel?pixelId=${pixelId}`)
+      const pixelData = await pixelResponse.json()
+      setPixelExists(pixelData.exists)
     } catch (err) {
       console.error("Error checking configuration:", err)
     } finally {
@@ -78,7 +84,7 @@ export default function CustomerSetup() {
         body: JSON.stringify({
           shop,
           pixelId,
-          accessToken,
+          accessToken: pixelExists ? undefined : accessToken, // Only send access token if pixel doesn't exist
           pixelName: pixelName || undefined,
         }),
       })
@@ -196,25 +202,47 @@ export default function CustomerSetup() {
                 <Input
                   id="pixelId"
                   value={pixelId}
-                  onChange={(e) => setPixelId(e.target.value)}
+                  onChange={(e) => {
+                    setPixelId(e.target.value)
+                    // Check if pixel exists when ID changes
+                    if (e.target.value) {
+                      fetch(`/api/customer/check-pixel?pixelId=${e.target.value}`)
+                        .then((res) => res.json())
+                        .then((data) => setPixelExists(data.exists))
+                        .catch(() => setPixelExists(false))
+                    } else {
+                      setPixelExists(false)
+                    }
+                  }}
                   placeholder="123456789012345"
                   required
                 />
                 <p className="text-sm text-gray-500">Find this in your Facebook Events Manager</p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="accessToken">Facebook Access Token *</Label>
-                <Input
-                  id="accessToken"
-                  type="password"
-                  value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
-                  placeholder="EAABsbCc1234567890..."
-                  required
-                />
-                <p className="text-sm text-gray-500">Generate this in Facebook Business Manager</p>
-              </div>
+              {!pixelExists && (
+                <div className="space-y-2">
+                  <Label htmlFor="accessToken">Facebook Access Token *</Label>
+                  <Input
+                    id="accessToken"
+                    type="password"
+                    value={accessToken}
+                    onChange={(e) => setAccessToken(e.target.value)}
+                    placeholder="EAABsbCc1234567890..."
+                    required
+                  />
+                  <p className="text-sm text-gray-500">Generate this in Facebook Business Manager</p>
+                </div>
+              )}
+
+              {pixelExists && (
+                <Alert>
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription>
+                    This Pixel ID is already registered in our system. No access token needed.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="pixelName">Pixel Name (Optional)</Label>

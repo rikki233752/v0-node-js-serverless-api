@@ -9,11 +9,8 @@ export async function POST(request: Request) {
     console.log("🎯 [Customer Setup] Setting up pixel for shop:", shop)
 
     // Validate required fields
-    if (!shop || !pixelId || !accessToken) {
-      return NextResponse.json(
-        { success: false, error: "Shop, Pixel ID, and Access Token are required" },
-        { status: 400 },
-      )
+    if (!shop || !pixelId) {
+      return NextResponse.json({ success: false, error: "Shop and Pixel ID are required" }, { status: 400 })
     }
 
     // Verify shop is authenticated
@@ -28,20 +25,37 @@ export async function POST(request: Request) {
       .replace(/\/$/, "")
       .toLowerCase()
 
-    // Create or update pixel configuration
-    const pixelConfig = await prisma.pixelConfig.upsert({
-      where: { pixelId: pixelId },
-      update: {
-        accessToken: accessToken,
-        name: pixelName || `${cleanShop} Pixel`,
-        updatedAt: new Date(),
-      },
-      create: {
-        pixelId: pixelId,
-        accessToken: accessToken,
-        name: pixelName || `${cleanShop} Pixel`,
-      },
+    // Check if the pixel ID already exists
+    const existingPixel = await prisma.pixelConfig.findUnique({
+      where: { pixelId },
     })
+
+    let pixelConfig
+
+    if (existingPixel) {
+      // If pixel exists, just use it (no need to update it)
+      console.log(`✅ [Customer Setup] Using existing pixel configuration: ${pixelId}`)
+      pixelConfig = existingPixel
+    } else {
+      // If pixel doesn't exist, create it (requires access token)
+      if (!accessToken) {
+        return NextResponse.json(
+          { success: false, error: "Access Token is required for new pixel configurations" },
+          { status: 400 },
+        )
+      }
+
+      // Create new pixel configuration
+      pixelConfig = await prisma.pixelConfig.create({
+        data: {
+          pixelId: pixelId,
+          accessToken: accessToken,
+          name: pixelName || `${cleanShop} Pixel`,
+        },
+      })
+
+      console.log(`✅ [Customer Setup] Created new pixel configuration: ${pixelId}`)
+    }
 
     // Link shop to pixel configuration
     await prisma.shopConfig.update({

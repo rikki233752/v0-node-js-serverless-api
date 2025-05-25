@@ -1,0 +1,27 @@
+type = "web_pixel"
+name = "Simple Pixel v2"
+
+runtime_context = "strict"
+
+[settings]
+type = "object"
+
+[settings.fields.pixelId]
+name = "Facebook Pixel ID"
+description = "Your Facebook Pixel ID"
+type = "single_line_text_field"
+validations = [
+  { name = "min", value = "1" }
+]
+
+[settings.fields.gatewayUrl]
+name = "Gateway URL"
+description = "URL of the Conversions API Gateway"
+type = "single_line_text_field"
+default = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
+
+[settings.fields.debug]
+name = "Debug Mode"
+description = "Enable debug logging"
+type = "boolean"
+default = false

@@ -1,177 +1,78 @@
-import { NextResponse } from "next/server"
-import { prisma, executeWithRetry } from "@/lib/db"
+import { type NextRequest, NextResponse } from "next/server"
+import { prisma } from "@/lib/db"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent, Origin, Referer",
-  "Access-Control-Max-Age": "86400",
-  "Cache-Control": "no-cache",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
 }
 
-export async function POST(request: Request) {
-  console.log("📡 [Config API] =================================")
-  console.log("📡 [Config API] Received config request")
-  console.log("📡 [Config API] Request URL:", request.url)
-  console.log("📡 [Config API] Request method:", request.method)
-  console.log("📡 [Config API] Request headers:", Object.fromEntries(request.headers.entries()))
-
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json()
-    console.log("📡 [Config API] Request body:", body)
+    const { searchParams } = new URL(request.url)
+    const shop = searchParams.get("shop")
 
-    const { shop, source } = body
-
-    console.log("🏪 [Config API] Request details:", { shop, source })
-
-    if (!shop || shop === "unknown") {
-      console.log("⚠️ [Config API] Invalid shop domain provided")
+    if (!shop) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Valid shop domain is required",
-          receivedShop: shop,
-          debug: "Shop domain detection failed",
-        },
+        { success: false, error: "Shop parameter is required" },
         { status: 400, headers: corsHeaders },
       )
     }
 
-    // Clean shop domain (remove protocol, www, etc.)
+    console.log(`🔍 [Config API] Getting pixel ID for shop: ${shop}`)
+
+    // Clean the shop domain
     const cleanShop = shop
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
       .replace(/\/$/, "")
       .toLowerCase()
 
-    console.log("🧹 [Config API] Cleaned shop domain:", cleanShop)
-
-    // Look up shop configuration in database
-    const shopConfig = await executeWithRetry(async () => {
-      return await prisma.shopConfig.findFirst({
-        where: {
-          OR: [{ shopDomain: cleanShop }, { shopDomain: shop }, { shopDomain: { contains: cleanShop } }],
-        },
-        include: {
-          pixelConfig: true, // Include related pixel configuration
-        },
-      })
+    // Get shop config from database
+    const shopConfig = await prisma.shopConfig.findUnique({
+      where: { shopDomain: cleanShop },
+      include: { pixelConfig: true },
     })
 
     if (!shopConfig) {
-      console.log("❌ [Config API] No shop configuration found for:", cleanShop)
+      console.log(`❌ [Config API] Shop not registered: ${cleanShop}`)
+      return NextResponse.json({ success: false, error: "Shop not registered" }, { status: 404, headers: corsHeaders })
+    }
+
+    if (shopConfig.pixelConfig) {
+      console.log(`✅ [Config API] Found pixel ID for shop ${cleanShop}: ${shopConfig.pixelConfig.pixelId}`)
 
       return NextResponse.json(
         {
-          success: false,
-          error: "No pixel configuration found for this shop",
+          success: true,
           shop: cleanShop,
+          pixelId: shopConfig.pixelConfig.pixelId,
+          accessToken: shopConfig.pixelConfig.accessToken,
+          configurationStatus: "already-present",
         },
-        { status: 404, headers: corsHeaders },
+        { headers: corsHeaders },
       )
-    }
+    } else {
+      console.log(`⚠️ [Config API] Shop exists but no pixel configured: ${cleanShop}`)
 
-    console.log("✅ [Config API] Found shop configuration:", {
-      shopId: shopConfig.id,
-      shopDomain: shopConfig.shopDomain,
-      pixelConfigId: shopConfig.pixelConfigId,
-    })
-
-    // Get the pixel configuration
-    let pixelConfig = shopConfig.pixelConfig
-
-    // If no direct pixel config, try to find one by pixel ID
-    if (!pixelConfig && shopConfig.pixelConfigId) {
-      pixelConfig = await executeWithRetry(async () => {
-        return await prisma.pixelConfig.findUnique({
-          where: { id: shopConfig.pixelConfigId },
-        })
-      })
-    }
-
-    if (!pixelConfig) {
-      console.log("❌ [Config API] No pixel configuration found for shop")
       return NextResponse.json(
         {
-          success: false,
-          error: "No pixel configuration found for this shop",
+          success: true,
           shop: cleanShop,
+          pixelId: null,
+          configurationStatus: "shop_exists_no_pixel",
+          message: "Shop is registered but pixel needs to be configured by admin",
         },
-        { status: 404, headers: corsHeaders },
+        { headers: corsHeaders },
       )
     }
-
-    console.log("🎯 [Config API] Found pixel configuration:", {
-      pixelId: pixelConfig.pixelId,
-      name: pixelConfig.name,
-      hasAccessToken: !!pixelConfig.accessToken,
-    })
-
-    // Validate that we have an access token for this pixel
-    if (!pixelConfig.accessToken) {
-      console.log("⚠️ [Config API] Pixel configuration missing access token")
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Pixel configuration is incomplete (missing access token)",
-          pixelId: pixelConfig.pixelId,
-          shop: cleanShop,
-        },
-        { status: 400, headers: corsHeaders },
-      )
-    }
-
-    // Return the validated configuration
-    const response = {
-      success: true,
-      pixelId: pixelConfig.pixelId,
-      gatewayEnabled: true,
-      source: "database",
-      shop: cleanShop,
-      pixelName: pixelConfig.name,
-      configuredAt: shopConfig.createdAt,
-      lastUpdated: shopConfig.updatedAt,
-    }
-
-    console.log("📤 [Config API] Returning configuration:", response)
-
-    return NextResponse.json(response, { headers: corsHeaders })
   } catch (error) {
-    console.error("💥 [Config API] Error processing config request:", error)
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Internal server error",
-        details: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500, headers: corsHeaders },
-    )
+    console.error("💥 [Config API] Error:", error)
+    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500, headers: corsHeaders })
   }
 }
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url)
-  const shop = searchParams.get("shop")
-
-  if (!shop) {
-    return NextResponse.json(
-      { success: false, error: "Shop parameter is required" },
-      { status: 400, headers: corsHeaders },
-    )
-  }
-
-  // Convert GET to POST format
-  return POST(
-    new Request(request.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shop, source: "get_request" }),
-    }),
-  )
-}
-
-export async function OPTIONS(request: Request) {
+export async function OPTIONS(request: NextRequest) {
   return new Response(null, {
     headers: corsHeaders,
     status: 204,
