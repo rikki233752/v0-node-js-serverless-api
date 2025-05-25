@@ -32,6 +32,7 @@ function extractFacebookPixelId(html: string): string | null {
 
   // Try each pattern and return the first match found
   for (const pattern of patterns) {
+    pattern.lastIndex = 0 // Reset regex state
     const match = pattern.exec(html)
     if (match && match[1]) {
       console.log(`✅ Found Pixel ID using pattern: ${pattern.source}`)
@@ -50,10 +51,49 @@ function extractFacebookPixelId(html: string): string | null {
   return null
 }
 
+// Check if store is password protected
+function isPasswordProtected(html: string): boolean {
+  const passwordPatterns = [
+    /<form[^>]*password/i,
+    /store.password-page/i,
+    /password-required/i,
+    /password-template/i,
+    /password protection/i,
+    /This store is password protected/i,
+  ]
+
+  return passwordPatterns.some((pattern) => pattern.test(html))
+}
+
+// Try to fetch from admin API if available
+async function tryAdminApiFetch(shop: string, accessToken?: string): Promise<string | null> {
+  if (!accessToken) {
+    console.log("⚠️ No access token available for admin API fetch")
+    return null
+  }
+
+  try {
+    console.log(`🔍 Attempting to fetch pixel ID via Admin API for ${shop}`)
+    // This is a placeholder - implement actual Admin API call based on your setup
+    // const response = await fetch(`https://${shop}/admin/api/2023-07/shop.json`, {
+    //   headers: {
+    //     'X-Shopify-Access-Token': accessToken
+    //   }
+    // })
+    // const data = await response.json()
+    // Look for pixel ID in shop metadata or preferences
+    return null // Replace with actual implementation
+  } catch (error) {
+    console.error("❌ Admin API fetch failed:", error)
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const shop = searchParams.get("shop")
+    const accessToken = searchParams.get("accessToken") || undefined
 
     // Validate shop parameter
     if (!shop) {
@@ -96,6 +136,49 @@ export async function GET(request: NextRequest) {
 
       const html = await response.text()
       console.log(`📄 Fetched ${html.length} characters of HTML`)
+
+      // Check if store is password protected
+      const passwordProtected = isPasswordProtected(html)
+      if (passwordProtected) {
+        console.log(`🔒 Store is password protected: ${cleanShop}`)
+
+        // Try admin API if we have access token
+        const adminPixelId = await tryAdminApiFetch(cleanShop, accessToken)
+        if (adminPixelId) {
+          console.log(`🎯 Found Facebook Pixel ID via Admin API: ${adminPixelId}`)
+          // Process this pixel ID (same code as below)
+          // ...
+
+          return NextResponse.json({
+            success: true,
+            shop: cleanShop,
+            pixelId: adminPixelId,
+            configurationStatus: "linked",
+            note: "Pixel ID found via Admin API (store is password protected)",
+          })
+        }
+
+        // Create/update shop config without pixel
+        await prisma.shopConfig.upsert({
+          where: { shopDomain: cleanShop },
+          update: {
+            gatewayEnabled: false,
+          },
+          create: {
+            shopDomain: cleanShop,
+            gatewayEnabled: false,
+          },
+        })
+
+        return NextResponse.json({
+          success: true,
+          shop: cleanShop,
+          pixelId: null,
+          configurationStatus: "shop_exists_no_pixel",
+          passwordProtected: true,
+          message: "Store is password protected. Please provide pixel ID manually or remove password protection.",
+        })
+      }
 
       // Extract Facebook Pixel ID
       const pixelId = extractFacebookPixelId(html)
