@@ -12,12 +12,14 @@ import Link from "next/link"
 
 export default function WebsiteSetupPage() {
   const searchParams = useSearchParams()
-  const [websiteUrl, setWebsiteUrl] = useState("")
   const [pixelId, setPixelId] = useState("")
   const [accessToken, setAccessToken] = useState("")
   const [showScript, setShowScript] = useState(false)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Get the actual gateway URL from environment variables
+  const gatewayUrl = process.env.NEXT_PUBLIC_HOST || "https://v0-node-js-serverless-api-lake.vercel.app"
 
   // Pre-fill pixel ID from URL parameters
   useEffect(() => {
@@ -31,11 +33,6 @@ export default function WebsiteSetupPage() {
     setError(null)
 
     // Validate inputs
-    if (!websiteUrl.trim()) {
-      setError("Please enter your website URL")
-      return
-    }
-
     if (!pixelId.trim()) {
       setError("Please enter your Facebook Pixel ID")
       return
@@ -61,8 +58,7 @@ export default function WebsiteSetupPage() {
   // Configuration
   var config = {
     pixelId: '${pixelId}',
-    gatewayUrl: '${process.env.NEXT_PUBLIC_HOST || "https://your-gateway-url.com"}/api/track',
-    websiteUrl: '${websiteUrl}'
+    gatewayUrl: '${gatewayUrl}/api/track'
   };
 
   // Initialize tracking
@@ -75,13 +71,16 @@ export default function WebsiteSetupPage() {
     // Send to gateway
     if (args[0] === 'track' || args[0] === 'trackCustom') {
       var eventData = {
-        eventName: args[1],
-        parameters: args[2] || {},
         pixelId: config.pixelId,
-        url: window.location.href,
-        referrer: document.referrer,
-        userAgent: navigator.userAgent,
-        timestamp: new Date().toISOString()
+        event_name: args[1],
+        custom_data: args[2] || {},
+        event_time: Math.floor(Date.now() / 1000),
+        event_source_url: window.location.href,
+        user_data: {
+          client_user_agent: navigator.userAgent,
+          fbp: getCookie('_fbp'),
+          fbc: getCookie('_fbc')
+        }
       };
       
       // Send to gateway
@@ -99,6 +98,12 @@ export default function WebsiteSetupPage() {
     // Store for later processing
     window.fbqGateway.push(args);
   };
+  
+  // Helper function to get cookies
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? match[2] : null;
+  }
   
   // Track page view on load
   fbq('track', 'PageView');
@@ -137,7 +142,6 @@ export default function WebsiteSetupPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          websiteUrl,
           pixelId,
           accessToken,
         }),
@@ -182,18 +186,6 @@ export default function WebsiteSetupPage() {
             {!showScript ? (
               <>
                 <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="website-url">Website URL</Label>
-                    <Input
-                      id="website-url"
-                      type="text"
-                      placeholder="https://yourwebsite.com"
-                      value={websiteUrl}
-                      onChange={(e) => setWebsiteUrl(e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-
                   <div>
                     <Label htmlFor="pixel-id">Facebook Pixel ID</Label>
                     <Input

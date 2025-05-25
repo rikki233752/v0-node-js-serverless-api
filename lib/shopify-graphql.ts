@@ -1,6 +1,48 @@
 import { prisma } from "./prisma"
 
 /**
+ * Shopify GraphQL Client for making authenticated requests
+ */
+export class ShopifyGraphQLClient {
+  private shop: string
+  private accessToken: string
+
+  constructor(shop: string, accessToken: string) {
+    this.shop = shop
+    this.accessToken = accessToken
+  }
+
+  async query(query: string, variables: any = {}): Promise<any> {
+    const endpoint = `https://${this.shop}/admin/api/2023-10/graphql.json`
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": this.accessToken,
+      },
+      body: JSON.stringify({
+        query,
+        variables,
+      }),
+    })
+
+    if (!response.ok) {
+      const responseText = await response.text()
+      throw new Error(`GraphQL request failed: ${response.status} ${response.statusText} - ${responseText}`)
+    }
+
+    const data = await response.json()
+
+    if (data.errors) {
+      throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`)
+    }
+
+    return data.data
+  }
+}
+
+/**
  * Activates a Web Pixel in Shopify
  */
 export async function activateWebPixel(
@@ -32,7 +74,7 @@ export async function activateWebPixel(
     console.log(`🔧 [activateWebPixel] Web Pixel settings:`, settings)
 
     // Create Shopify GraphQL client
-    const endpoint = `https://${shop}/admin/api/2023-10/graphql.json`
+    const client = new ShopifyGraphQLClient(shop, accessToken)
 
     // Create Web Pixel
     const WEB_PIXEL_CREATE_MUTATION = `
@@ -51,42 +93,23 @@ export async function activateWebPixel(
       }
     `
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": accessToken,
+    const result = await client.query(WEB_PIXEL_CREATE_MUTATION, {
+      webPixel: {
+        settings: JSON.stringify(settings),
       },
-      body: JSON.stringify({
-        query: WEB_PIXEL_CREATE_MUTATION,
-        variables: {
-          webPixel: {
-            settings: JSON.stringify(settings),
-          },
-        },
-      }),
     })
 
-    if (!response.ok) {
-      console.error(`❌ [activateWebPixel] GraphQL request failed: ${response.status}`)
-      return {
-        success: false,
-        error: `GraphQL request failed: ${response.status}`,
-      }
-    }
-
-    const result = await response.json()
     console.log(`📨 [activateWebPixel] Web Pixel creation result:`, JSON.stringify(result, null, 2))
 
-    if (result.data?.webPixelCreate?.userErrors && result.data.webPixelCreate.userErrors.length > 0) {
-      console.error(`⚠️ [activateWebPixel] Web Pixel creation errors:`, result.data.webPixelCreate.userErrors)
+    if (result.webPixelCreate?.userErrors && result.webPixelCreate.userErrors.length > 0) {
+      console.error(`⚠️ [activateWebPixel] Web Pixel creation errors:`, result.webPixelCreate.userErrors)
       return {
         success: false,
-        error: result.data.webPixelCreate.userErrors.map((err: any) => `${err.message} (${err.code})`).join(", "),
+        error: result.webPixelCreate.userErrors.map((err: any) => `${err.message} (${err.code})`).join(", "),
       }
     }
 
-    if (!result.data?.webPixelCreate?.webPixel) {
+    if (!result.webPixelCreate?.webPixel) {
       console.error(`❌ [activateWebPixel] No Web Pixel created in response`)
       return {
         success: false,
@@ -94,7 +117,7 @@ export async function activateWebPixel(
       }
     }
 
-    const webPixel = result.data.webPixelCreate.webPixel
+    const webPixel = result.webPixelCreate.webPixel
     console.log(`✅ [activateWebPixel] Web Pixel created successfully:`, webPixel)
 
     // Store the Web Pixel ID in the database

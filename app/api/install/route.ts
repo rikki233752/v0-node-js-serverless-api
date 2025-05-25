@@ -5,7 +5,7 @@ import { isValidShop, generateNonce } from "@/lib/shopify"
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const shop = url.searchParams.get("shop")
-  const pixelId = url.searchParams.get("pixel_id")
+  const pixelId = url.searchParams.get("pixelId") || url.searchParams.get("pixel_id")
 
   console.log("Direct install request:", { shop, pixelId, url: request.url })
 
@@ -42,13 +42,6 @@ export async function GET(request: NextRequest) {
     pixelId,
   })
 
-  // Return the OAuth URL for the user to visit
-  return NextResponse.json({
-    success: true,
-    installUrl: authUrl.toString(),
-    redirectUri,
-    shop,
-    pixelId,
-    message: "Visit the installUrl to complete the installation",
-  })
+  // Redirect directly to Shopify OAuth
+  return NextResponse.redirect(authUrl.toString())
 }
