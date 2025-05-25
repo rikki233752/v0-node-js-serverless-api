@@ -1,180 +1,186 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useEffect, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
+interface PixelData {
+  timestamp: string
+  shop?: string
+  configAccountId?: string
+  configData?: any
+  analyticsData?: any
+  detectedPixels?: string[]
+}
+
 export default function WebPixelDebugPage() {
-  const [pixelData, setPixelData] = useState<any>(null)
+  const [pixelData, setPixelData] = useState<PixelData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<string>("")
+  const [autoRefresh, setAutoRefresh] = useState(true)
 
-  const fetchPixelData = async () => {
-    setLoading(true)
-    setError(null)
+  const fetchData = async () => {
     try {
-      const response = await fetch("/api/debug/web-pixel-data", {
-        cache: "no-store",
-        headers: {
-          "Cache-Control": "no-cache",
-        },
-      })
-
+      setLoading(true)
+      const response = await fetch("/api/debug/web-pixel-data")
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`)
+        throw new Error(`API returned ${response.status}`)
       }
-
       const data = await response.json()
       setPixelData(data)
-      setLastRefresh(new Date().toLocaleTimeString())
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch pixel data")
-      console.error("Error fetching pixel data:", err)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error")
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchPixelData()
+    fetchData()
 
-    // Set up polling every 5 seconds
-    const intervalId = setInterval(fetchPixelData, 5000)
+    // Set up auto-refresh
+    let intervalId: NodeJS.Timeout | null = null
+    if (autoRefresh) {
+      intervalId = setInterval(fetchData, 5000) // Refresh every 5 seconds
+    }
 
-    return () => clearInterval(intervalId)
-  }, [])
-
-  const formatJson = (obj: any) => {
-    return JSON.stringify(obj, null, 2)
-  }
-
-  const getAccountId = () => {
-    if (!pixelData || !pixelData.data) return "Not available"
-
-    const configAccountId = pixelData.data.configAccountId || "Not found"
-    const configData = pixelData.data.configData?.accountID || "Not found in configData"
-
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="font-semibold">configAccountId:</span>
-          <span
-            className={`px-2 py-1 rounded ${configAccountId !== "Not found" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
-          >
-            {configAccountId}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="font-semibold">configData.accountID:</span>
-          <span
-            className={`px-2 py-1 rounded ${configData !== "Not found in configData" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
-          >
-            {configData}
-          </span>
-        </div>
-      </div>
-    )
-  }
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [autoRefresh])
 
   return (
     <div className="container mx-auto py-8 px-4">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-2xl">Web Pixel Debug Data</CardTitle>
-          <CardDescription>Shows the latest data received from the Web Pixel extension</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading && !pixelData ? (
-            <div className="text-center py-8">Loading pixel data...</div>
-          ) : error ? (
-            <div className="bg-red-100 text-red-800 p-4 rounded">Error: {error}</div>
-          ) : !pixelData || !pixelData.data ? (
-            <div className="bg-yellow-100 text-yellow-800 p-4 rounded">
-              No pixel data received yet. Please visit your Shopify store with the Web Pixel extension installed.
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <h3 className="text-lg font-semibold mb-2">Account ID Information</h3>
-                {getAccountId()}
-              </div>
-
-              <Tabs defaultValue="overview">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="overview">Overview</TabsTrigger>
-                  <TabsTrigger value="config">Configuration</TabsTrigger>
-                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
-                  <TabsTrigger value="raw">Raw Data</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="overview" className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">Timestamp</h3>
-                      <p>{pixelData.timestamp}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">Current URL</h3>
-                      <p className="break-all">{pixelData.data?.currentUrl || "Not available"}</p>
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">Detected Pixels</h3>
-                      {pixelData.data?.detectedPixels?.length > 0 ? (
-                        <ul className="list-disc list-inside">
-                          {pixelData.data.detectedPixels.map((pixel: string, index: number) => (
-                            <li key={index}>{pixel}</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p>No pixels detected</p>
-                      )}
-                    </div>
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="font-medium mb-2">User Agent</h3>
-                      <p className="text-sm break-all">{pixelData.data?.userAgent || "Not available"}</p>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="config">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-medium mb-2">Configuration Data</h3>
-                    <pre className="bg-gray-100 p-4 rounded overflow-auto max-h-96 text-sm">
-                      {formatJson(pixelData.data?.configData || {})}
-                    </pre>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="analytics">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-medium mb-2">Analytics Data</h3>
-                    <pre className="bg-gray-100 p-4 rounded overflow-auto max-h-96 text-sm">
-                      {formatJson(pixelData.data?.analyticsData || {})}
-                    </pre>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="raw">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h3 className="font-medium mb-2">Raw Data</h3>
-                    <pre className="bg-gray-100 p-4 rounded overflow-auto max-h-96 text-sm">
-                      {formatJson(pixelData)}
-                    </pre>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </div>
-          )}
-        </CardContent>
-        <CardFooter className="flex justify-between items-center">
-          <div className="text-sm text-gray-500">Last refreshed: {lastRefresh || "Never"}</div>
-          <Button onClick={fetchPixelData} disabled={loading}>
-            {loading ? "Refreshing..." : "Refresh Data"}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Web Pixel Debug</h1>
+        <div className="flex gap-2">
+          <Button variant={autoRefresh ? "default" : "outline"} onClick={() => setAutoRefresh(!autoRefresh)}>
+            {autoRefresh ? "Auto-Refresh On" : "Auto-Refresh Off"}
           </Button>
-        </CardFooter>
-      </Card>
+          <Button onClick={fetchData} disabled={loading}>
+            {loading ? "Loading..." : "Refresh Now"}
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <Card className="mb-6 border-red-300 bg-red-50">
+          <CardContent className="pt-6">
+            <p className="text-red-600">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!pixelData && !loading && !error && (
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <p className="text-center text-gray-500">
+              No pixel data received yet. Please visit your Shopify store with the Web Pixel extension installed.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {pixelData && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Account ID Information</CardTitle>
+              <CardDescription>The account ID is used to identify the Facebook Pixel</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium mb-2">Configuration Account ID</h3>
+                  <p className="font-mono text-lg">{pixelData.configAccountId || "Not set"}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium mb-2">Configuration Data Account ID</h3>
+                  <p className="font-mono text-lg">{pixelData.configData?.accountID || "Not set"}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Tabs defaultValue="config">
+            <TabsList className="grid grid-cols-3 mb-4">
+              <TabsTrigger value="config">Configuration</TabsTrigger>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+              <TabsTrigger value="detected">Detected Pixels</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="config">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Configuration Data</CardTitle>
+                  <CardDescription>Full configuration object from the Web Pixel extension</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="bg-gray-50 p-4 rounded-lg overflow-auto max-h-96">
+                    {JSON.stringify(pixelData.configData || {}, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="analytics">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Analytics Data</CardTitle>
+                  <CardDescription>Analytics metadata from the Web Pixel extension</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="bg-gray-50 p-4 rounded-lg overflow-auto max-h-96">
+                    {JSON.stringify(pixelData.analyticsData || {}, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="detected">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Detected Pixels</CardTitle>
+                  <CardDescription>Pixels detected on the page by the Web Pixel extension</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {pixelData.detectedPixels && pixelData.detectedPixels.length > 0 ? (
+                    <ul className="list-disc pl-5 space-y-2">
+                      {pixelData.detectedPixels.map((pixel, index) => (
+                        <li key={index} className="font-mono">
+                          {pixel}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-500">No pixels detected</p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Metadata</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium mb-2">Shop</h3>
+                  <p className="font-mono">{pixelData.shop || "Unknown"}</p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <h3 className="font-medium mb-2">Timestamp</h3>
+                  <p className="font-mono">{pixelData.timestamp}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

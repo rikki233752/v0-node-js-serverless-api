@@ -1,26 +1,16 @@
 import Link from "next/link"
-import { ShopifyInstallButton } from "@/components/shopify-install-button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle } from "lucide-react"
+import { ShoppingBag, Code, Zap, Shield } from "lucide-react"
 
 export default function Home({
   searchParams,
 }: {
   searchParams: { [key: string]: string | string[] | undefined }
 }) {
-  // Get environment variables
-  const apiKey = process.env.SHOPIFY_API_KEY || ""
-  const host = process.env.HOST || ""
-  const scopes = process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events"
-  const redirectUri = `${host}/api/auth/callback`
-
-  // Get shop from query params (if available)
-  const shop = typeof searchParams.shop === "string" ? searchParams.shop : null
-
-  // Check if API key is set
-  const isApiKeySet = !!apiKey
+  // Get UTM parameters for pixel ID
+  const utmPixelId = typeof searchParams.utm_pixel_id === "string" ? searchParams.utm_pixel_id : null
+  const pixelId = typeof searchParams.pixel_id === "string" ? searchParams.pixel_id : utmPixelId
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -31,132 +21,155 @@ export default function Home({
             Send events to Facebook Conversions API securely, bypass ad blockers, and protect user data
           </p>
 
-          {/* API Key Warning */}
-          {!isApiKeySet && (
-            <Alert variant="destructive" className="max-w-md mx-auto mb-6">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Missing API Key</AlertTitle>
-              <AlertDescription>
-                The Shopify API key is not set. Please add the SHOPIFY_API_KEY environment variable.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Install Button */}
-          <div className="max-w-md mx-auto mt-8">
-            <ShopifyInstallButton
-              apiKey={apiKey}
-              redirectUri={redirectUri}
-              scopes={scopes}
-              initialShop={shop}
-              buttonText="Install on Shopify"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-lg py-3"
-              disabled={!isApiKeySet}
-            />
-            {process.env.NODE_ENV === "development" && (
-              <div className="mt-4 p-3 bg-gray-100 rounded text-xs">
-                <p>
-                  <strong>Debug Info:</strong>
-                </p>
-                <p>API Key: {apiKey ? "Set" : "Missing"}</p>
-                <p>Host: {host}</p>
-                <p>Redirect URI: {redirectUri}</p>
-              </div>
-            )}
-            {!isApiKeySet && (
-              <p className="text-sm text-gray-300 mt-2">Installation is disabled until the API key is configured.</p>
-            )}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
+            <Link href={`/setup/shopify${pixelId ? `?pixel_id=${pixelId}` : ""}`}>
+              <Button size="lg" className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
+                <ShoppingBag className="mr-2 h-5 w-5" />
+                Install on Shopify
+              </Button>
+            </Link>
+            <Link href={`/setup/website${pixelId ? `?pixel_id=${pixelId}` : ""}`}>
+              <Button size="lg" variant="outline" className="w-full sm:w-auto">
+                <Code className="mr-2 h-5 w-5" />
+                Install on Any Website
+              </Button>
+            </Link>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-16 flex flex-col items-center">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Facebook Pixel Gateway</CardTitle>
-            <CardDescription>Admin tools and utilities</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold mb-2">Admin Tools</h2>
-              <div className="space-y-2">
-                <Link href="/login?redirect=/admin/dashboard" className="block">
-                  <Button className="w-full">Admin Dashboard</Button>
-                </Link>
-                <Link href="/login?redirect=/test-pixel" className="block">
-                  <Button variant="outline" className="w-full">
-                    Test Pixel Tool
-                  </Button>
-                </Link>
-                <Link href="/login?redirect=/admin/pixels" className="block">
-                  <Button variant="outline" className="w-full">
-                    Pixel Management
-                  </Button>
-                </Link>
+      <main className="container mx-auto px-4 py-16">
+        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+          {/* Shopify Installation */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ShoppingBag className="h-6 w-6 text-blue-600" />
+                <CardTitle>Shopify Installation</CardTitle>
               </div>
-            </div>
+              <CardDescription>For Shopify store owners</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ul className="space-y-2 text-sm text-gray-600">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Automatic event tracking</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>No code modifications needed</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Web Pixel integration</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Server-side tracking</span>
+                </li>
+              </ul>
+              <Link href={`/setup/shopify${pixelId ? `?pixel_id=${pixelId}` : ""}`}>
+                <Button className="w-full">Get Started with Shopify</Button>
+              </Link>
+            </CardContent>
+          </Card>
 
-            <div className="pt-4 border-t">
-              <h2 className="text-lg font-semibold mb-2">Documentation</h2>
-              <div className="space-y-2">
-                <Link href="/integration-guide" className="block">
-                  <Button variant="secondary" className="w-full">
-                    Integration Guide
-                  </Button>
-                </Link>
+          {/* Website Installation */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Code className="h-6 w-6 text-green-600" />
+                <CardTitle>Website Installation</CardTitle>
               </div>
+              <CardDescription>For any website or platform</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ul className="space-y-2 text-sm text-gray-600">
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Works with any website</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Simple script installation</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Custom event tracking</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Full API access</span>
+                </li>
+              </ul>
+              <Link href={`/setup/website${pixelId ? `?pixel_id=${pixelId}` : ""}`}>
+                <Button className="w-full" variant="outline">
+                  Get Started with Any Website
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Features Section */}
+        <div className="mt-16 text-center">
+          <h2 className="text-3xl font-bold mb-12">Why Use Our Gateway?</h2>
+          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            <div className="text-center">
+              <div className="bg-blue-100 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Zap className="h-8 w-8 text-blue-600" />
+              </div>
+              <h3 className="font-semibold mb-2">Bypass Ad Blockers</h3>
+              <p className="text-sm text-gray-600">Server-side tracking ensures your events are always captured</p>
             </div>
+            <div className="text-center">
+              <div className="bg-green-100 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Shield className="h-8 w-8 text-green-600" />
+              </div>
+              <h3 className="font-semibold mb-2">Privacy Compliant</h3>
+              <p className="text-sm text-gray-600">Automatic PII hashing for GDPR and CCPA compliance</p>
+            </div>
+            <div className="text-center">
+              <div className="bg-purple-100 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Code className="h-8 w-8 text-purple-600" />
+              </div>
+              <h3 className="font-semibold mb-2">Easy Integration</h3>
+              <p className="text-sm text-gray-600">Simple setup for both Shopify and custom websites</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Admin Tools */}
+        <Card className="max-w-md mx-auto mt-16">
+          <CardHeader>
+            <CardTitle>Admin Tools</CardTitle>
+            <CardDescription>Manage your pixel configurations</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Link href="/login?redirect=/admin/dashboard" className="block">
+              <Button className="w-full">Admin Dashboard</Button>
+            </Link>
+            <Link href="/login?redirect=/admin/pixels" className="block">
+              <Button variant="outline" className="w-full">
+                Pixel Management
+              </Button>
+            </Link>
+            <Link href="/integration-guide" className="block">
+              <Button variant="secondary" className="w-full">
+                Integration Guide
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </main>
 
-      <section className="bg-gray-50 py-16">
-        <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center mb-12">Frequently Asked Questions</h2>
-
-          <div className="max-w-3xl mx-auto space-y-8">
-            <div>
-              <h3 className="text-xl font-semibold mb-2">What is server-side tracking?</h3>
-              <p className="text-gray-700">
-                Server-side tracking sends events from your server to Facebook instead of from the user's browser. This
-                bypasses ad blockers and provides more reliable tracking.
-              </p>
-            </div>
-
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Do I need to modify my Shopify theme?</h3>
-              <p className="text-gray-700">
-                No, our app works without any theme modifications. It automatically tracks all standard Shopify events.
-              </p>
-            </div>
-
-            <div>
-              <h3 className="text-xl font-semibold mb-2">How do I get a Facebook Pixel ID and access token?</h3>
-              <p className="text-gray-700">
-                You can create a Facebook Pixel in your Meta Business Manager. The access token can be generated in the
-                Events Manager under the Conversions API section.
-              </p>
-            </div>
-
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Is this compliant with privacy regulations?</h3>
-              <p className="text-gray-700">
-                Yes, our app automatically hashes all personally identifiable information (PII) before sending it to
-                Facebook, helping you comply with privacy regulations like GDPR and CCPA.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <footer className="bg-gray-900 text-white py-12">
+      <footer className="bg-gray-900 text-white py-12 mt-16">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-6 md:mb-0">
               <h2 className="text-2xl font-bold">Facebook Pixel Gateway</h2>
               <p className="mt-2 text-gray-400">© {new Date().getFullYear()} All rights reserved.</p>
             </div>
-
             <div className="flex gap-8">
               <Link href="/privacy-policy" className="text-gray-400 hover:text-white">
                 Privacy Policy

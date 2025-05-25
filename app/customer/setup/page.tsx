@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink, Clock } from "lucide-react"
+import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink } from "lucide-react"
 
 export default function CustomerSetup() {
   const [shop, setShop] = useState("")
@@ -12,8 +12,6 @@ export default function CustomerSetup() {
   const [configured, setConfigured] = useState(false)
   const [pixelId, setPixelId] = useState<string | null>(null)
   const [pixelName, setPixelName] = useState<string | null>(null)
-  const [configurationStatus, setConfigurationStatus] = useState<string>("")
-  const [message, setMessage] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [testingEvents, setTestingEvents] = useState(false)
 
@@ -47,19 +45,13 @@ export default function CustomerSetup() {
       const response = await fetch(`/api/customer/setup-pixel?shop=${shopDomain}`)
       const data = await response.json()
 
-      console.log("🔍 [Setup Page] API Response:", data)
-
       if (data.success) {
         setConfigured(data.configured)
         setPixelId(data.pixelId)
         setPixelName(data.pixelName)
-        setConfigurationStatus(data.configurationStatus)
-        setMessage(data.message)
 
         if (!data.configured) {
-          setError(data.message || "Your Facebook Pixel has not been configured yet.")
-        } else {
-          setError(null)
+          setError("Your Facebook Pixel has not been configured yet. Please contact support to set up your pixel.")
         }
       } else {
         setError(data.error || "Failed to check configuration")
@@ -98,35 +90,6 @@ export default function CustomerSetup() {
     }
   }
 
-  const getStatusIcon = () => {
-    if (configured) {
-      return <CheckCircle className="h-5 w-5 text-green-500" />
-    }
-    switch (configurationStatus) {
-      case "shop_exists_no_pixel":
-      case "pixel_exists_no_token":
-        return <Clock className="h-5 w-5 text-orange-500" />
-      default:
-        return <AlertCircle className="h-5 w-5 text-red-500" />
-    }
-  }
-
-  const getStatusMessage = () => {
-    if (configured) {
-      return "Your Facebook Pixel is configured and actively tracking events from your store."
-    }
-    switch (configurationStatus) {
-      case "shop_exists_no_pixel":
-        return "Your shop is registered but your Facebook Pixel needs to be configured."
-      case "pixel_exists_no_token":
-        return "Your pixel is detected but missing access token configuration."
-      case "shop_not_found":
-        return "Your shop was not found in our system."
-      default:
-        return "Your Facebook Pixel configuration is pending."
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -143,12 +106,27 @@ export default function CustomerSetup() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {getStatusIcon()}
+            {configured ? (
+              <CheckCircle className="h-5 w-5 text-green-500" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-orange-500" />
+            )}
             Facebook Pixel Gateway
           </CardTitle>
-          <CardDescription>{getStatusMessage()}</CardDescription>
+          <CardDescription>
+            {configured
+              ? "Your Facebook Pixel is configured and actively tracking events from your store."
+              : "Your Facebook Pixel configuration is pending."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          {error && !configured && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
           {configured ? (
             <div className="space-y-6">
               <Alert>
@@ -234,43 +212,23 @@ export default function CustomerSetup() {
             </div>
           ) : (
             <div className="space-y-4">
-              <Alert variant={configurationStatus === "shop_not_found" ? "destructive" : "default"}>
-                {configurationStatus === "shop_not_found" ? (
-                  <AlertCircle className="h-4 w-4" />
-                ) : (
-                  <Clock className="h-4 w-4" />
-                )}
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>
-                    {configurationStatus === "shop_not_found" ? "Shop Not Found" : "Configuration Pending"}
-                  </strong>
+                  <strong>Configuration Pending</strong>
                   <br />
-                  {message}
-                  {pixelId && (
-                    <>
-                      <br />
-                      <strong>Detected Pixel ID:</strong> {pixelId}
-                    </>
-                  )}
+                  Your Facebook Pixel needs to be configured by our team. This usually takes 24-48 hours after app
+                  installation.
                 </AlertDescription>
               </Alert>
 
               <div className="space-y-2">
                 <h3 className="font-semibold">What happens next?</h3>
                 <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
-                  {configurationStatus === "shop_not_found" ? (
-                    <>
-                      <li>Please reinstall the app to register your shop</li>
-                      <li>Contact support if the issue persists</li>
-                    </>
-                  ) : (
-                    <>
-                      <li>Our team will configure your Facebook Pixel within 24-48 hours</li>
-                      <li>You'll receive an email notification when setup is complete</li>
-                      <li>No action required from you - everything is handled automatically</li>
-                      <li>Return to this page to check your configuration status</li>
-                    </>
-                  )}
+                  <li>Our team will configure your Facebook Pixel within 24-48 hours</li>
+                  <li>You'll receive an email notification when setup is complete</li>
+                  <li>No action required from you - everything is handled automatically</li>
+                  <li>Return to this page to check your configuration status</li>
                 </ul>
               </div>
 

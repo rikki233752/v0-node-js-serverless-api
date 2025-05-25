@@ -1,33 +1,40 @@
-import { shopifyAdmin } from "./shopify"
+import { prisma } from "./prisma"
 
-interface WebPixelResult {
+/**
+ * Activates a Web Pixel in Shopify
+ */
+export async function activateWebPixel(
+  shop: string,
+  accessToken: string,
+  detectedPixelId?: string | null,
+): Promise<{
   success: boolean
-  webPixel?: any
+  webPixel?: { id: string; settings: string }
   error?: string
-}
-
-export async function activateWebPixel(shop: string, accessToken: string, pixelId?: string): Promise<WebPixelResult> {
+}> {
   try {
-    console.log("🎯 [Web Pixel] Starting Web Pixel activation for shop:", shop)
+    console.log(`🎯 [activateWebPixel] Starting for shop: ${shop}`)
 
-    // Create admin client
-    const client = await shopifyAdmin(shop)
+    // Get the pixel ID from detected pixel, environment variable, or use a default
+    const pixelId = detectedPixelId || process.env.FACEBOOK_PIXEL_ID || "584928510540140" // Default test pixel ID
 
-    // Use provided pixel ID or fall back to environment variable
-    const facebookPixelId = pixelId || process.env.FACEBOOK_PIXEL_ID || "584928510540140"
+    console.log(`🔧 [activateWebPixel] Using pixel ID: ${pixelId}`)
 
-    // Prepare Web Pixel settings with the detected/provided pixel ID
+    // Prepare Web Pixel settings
     const settings = {
-      accountID: facebookPixelId,
-      pixelId: facebookPixelId,
+      accountID: pixelId,
+      pixelId: pixelId,
       gatewayUrl: `${process.env.HOST || "https://v0-node-js-serverless-api-lake.vercel.app"}/api/track`,
       debug: true,
       timestamp: new Date().toISOString(),
     }
 
-    console.log("🔧 [Web Pixel] Using settings:", settings)
+    console.log(`🔧 [activateWebPixel] Web Pixel settings:`, settings)
 
-    // Create Web Pixel mutation
+    // Create Shopify GraphQL client
+    const endpoint = `https://${shop}/admin/api/2023-10/graphql.json`
+
+    // Create Web Pixel
     const WEB_PIXEL_CREATE_MUTATION = `
       mutation webPixelCreate($webPixel: WebPixelInput!) {
         webPixelCreate(webPixel: $webPixel) {
@@ -44,29 +51,82 @@ export async function activateWebPixel(shop: string, accessToken: string, pixelI
       }
     `
 
-    const result = await client.query(WEB_PIXEL_CREATE_MUTATION, {
-      webPixel: {
-        settings: JSON.stringify(settings),
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": accessToken,
       },
+      body: JSON.stringify({
+        query: WEB_PIXEL_CREATE_MUTATION,
+        variables: {
+          webPixel: {
+            settings: JSON.stringify(settings),
+          },
+        },
+      }),
     })
 
-    console.log("📨 [Web Pixel] Creation result:", JSON.stringify(result, null, 2))
-
-    if (result.webPixelCreate.userErrors && result.webPixelCreate.userErrors.length > 0) {
-      console.error("⚠️ [Web Pixel] Creation errors:", result.webPixelCreate.userErrors)
+    if (!response.ok) {
+      console.error(`❌ [activateWebPixel] GraphQL request failed: ${response.status}`)
       return {
         success: false,
-        error: result.webPixelCreate.userErrors[0].message,
+        error: `GraphQL request failed: ${response.status}`,
       }
     }
 
-    console.log("✅ [Web Pixel] Created successfully")
+    const result = await response.json()
+    console.log(`📨 [activateWebPixel] Web Pixel creation result:`, JSON.stringify(result, null, 2))
+
+    if (result.data?.webPixelCreate?.userErrors && result.data.webPixelCreate.userErrors.length > 0) {
+      console.error(`⚠️ [activateWebPixel] Web Pixel creation errors:`, result.data.webPixelCreate.userErrors)
+      return {
+        success: false,
+        error: result.data.webPixelCreate.userErrors.map((err: any) => `${err.message} (${err.code})`).join(", "),
+      }
+    }
+
+    if (!result.data?.webPixelCreate?.webPixel) {
+      console.error(`❌ [activateWebPixel] No Web Pixel created in response`)
+      return {
+        success: false,
+        error: "No Web Pixel created in response",
+      }
+    }
+
+    const webPixel = result.data.webPixelCreate.webPixel
+    console.log(`✅ [activateWebPixel] Web Pixel created successfully:`, webPixel)
+
+    // Store the Web Pixel ID in the database
+    try {
+      const cleanShop = shop
+        .replace(/^https?:\/\//, "")
+        .replace(/^www\./, "")
+        .replace(/\/$/, "")
+        .toLowerCase()
+
+      await prisma.shopConfig.update({
+        where: { shopDomain: cleanShop },
+        data: {
+          webPixelId: webPixel.id,
+          updatedAt: new Date(),
+        },
+      })
+      console.log(`✅ [activateWebPixel] Web Pixel ID stored in database for shop: ${cleanShop}`)
+    } catch (dbError) {
+      console.error(`⚠️ [activateWebPixel] Failed to store Web Pixel ID in database:`, dbError)
+      // Don't fail the activation for this
+    }
+
     return {
       success: true,
-      webPixel: result.webPixelCreate.webPixel,
+      webPixel: {
+        id: webPixel.id,
+        settings: webPixel.settings,
+      },
     }
   } catch (error) {
-    console.error("💥 [Web Pixel] Error creating Web Pixel:", error)
+    console.error(`💥 [activateWebPixel] Error:`, error)
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",

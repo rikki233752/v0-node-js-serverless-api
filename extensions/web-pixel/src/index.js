@@ -10,202 +10,177 @@ register(({ configuration, analytics, browser }) => {
     browserKeys: browser ? Object.keys(browser) : null,
   })
 
-  // Get current page URL for shop identification
-  const getCurrentUrl = () => {
-    try {
-      if (browser && browser.url && browser.url.href) {
-        return browser.url.href
-      }
-      if (typeof window !== "undefined" && window.location) {
-        return window.location.href
-      }
-      return "unknown"
-    } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error getting current URL:", error)
-      return "unknown"
-    }
-  }
-
-  // Enhanced function to detect existing Facebook Pixels on the website
-  const detectExistingPixels = () => {
-    const detectedPixels = []
+  // Enhanced function to detect shop domain from various sources
+  const detectShopDomain = () => {
+    const sources = []
 
     try {
-      // Method 1: Check for fbq global function
-      if (typeof window !== "undefined" && window.fbq && window.fbq._pixelId) {
-        console.log("🔍 [Pixel Detection] Found fbq._pixelId:", window.fbq._pixelId)
-        detectedPixels.push(window.fbq._pixelId)
-      }
-
-      // Method 2: Check for Facebook Pixel script tags
-      if (typeof document !== "undefined") {
-        const scripts = document.querySelectorAll("script")
-        scripts.forEach((script) => {
-          const content = script.textContent || script.innerHTML || ""
-
-          // Look for fbq('init', 'PIXEL_ID') patterns
-          const initMatches = content.match(/fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/g)
-          if (initMatches) {
-            initMatches.forEach((match) => {
-              const pixelMatch = match.match(/['"](\d+)['"]/)
-              if (pixelMatch && pixelMatch[1]) {
-                console.log("🔍 [Pixel Detection] Found pixel in script:", pixelMatch[1])
-                if (!detectedPixels.includes(pixelMatch[1])) {
-                  detectedPixels.push(pixelMatch[1])
-                }
-              }
-            })
+      // Method 1: Try browser.url (Web Pixel API)
+      if (browser && browser.url) {
+        sources.push("browser.url exists")
+        if (browser.url.hostname) {
+          console.log("🔍 [Web Pixel Gateway] Domain from browser.url.hostname:", browser.url.hostname)
+          return browser.url.hostname
+        }
+        if (browser.url.href) {
+          sources.push("browser.url.href exists")
+          try {
+            const url = new URL(browser.url.href)
+            console.log("🔍 [Web Pixel Gateway] Domain from browser.url.href:", url.hostname)
+            return url.hostname
+          } catch (e) {
+            sources.push(`browser.url.href parse error: ${e.message}`)
           }
-        })
+        }
+        if (typeof browser.url === "string") {
+          sources.push("browser.url is string")
+          try {
+            const url = new URL(browser.url)
+            console.log("🔍 [Web Pixel Gateway] Domain from browser.url string:", url.hostname)
+            return url.hostname
+          } catch (e) {
+            sources.push(`browser.url string parse error: ${e.message}`)
+          }
+        }
+      } else {
+        sources.push("browser.url not available")
       }
 
-      // Method 3: Check for _fbp cookie (indicates pixel presence)
+      // Method 2: Try browser.document
+      if (browser && browser.document) {
+        sources.push("browser.document exists")
+        if (browser.document.location) {
+          sources.push("browser.document.location exists")
+          if (browser.document.location.hostname) {
+            console.log(
+              "🔍 [Web Pixel Gateway] Domain from browser.document.location:",
+              browser.document.location.hostname,
+            )
+            return browser.document.location.hostname
+          }
+          if (browser.document.location.href) {
+            try {
+              const url = new URL(browser.document.location.href)
+              console.log("🔍 [Web Pixel Gateway] Domain from browser.document.location.href:", url.hostname)
+              return url.hostname
+            } catch (e) {
+              sources.push(`browser.document.location.href parse error: ${e.message}`)
+            }
+          }
+        }
+      } else {
+        sources.push("browser.document not available")
+      }
+
+      // Method 3: Try analytics context (sometimes has URL info)
+      if (analytics && analytics.context) {
+        sources.push("analytics.context exists")
+        console.log("🔍 [Web Pixel Gateway] Analytics context:", analytics.context)
+      }
+
+      // Method 4: Try global window (might not work in Web Pixel context)
+      if (typeof window !== "undefined") {
+        sources.push("window exists")
+        if (window.location) {
+          console.log("🔍 [Web Pixel Gateway] Domain from window.location:", window.location.hostname)
+          return window.location.hostname
+        }
+      } else {
+        sources.push("window not available")
+      }
+
+      // Method 5: Try global document
       if (typeof document !== "undefined") {
-        const fbpCookie = document.cookie.match(/_fbp=([^;]+)/)
-        if (fbpCookie) {
-          console.log("🔍 [Pixel Detection] Found _fbp cookie, indicating pixel presence")
+        sources.push("document exists")
+        if (document.location) {
+          console.log("🔍 [Web Pixel Gateway] Domain from document.location:", document.location.hostname)
+          return document.location.hostname
+        }
+      } else {
+        sources.push("document not available")
+      }
+
+      // Method 6: Try to extract from any available URL in browser object
+      if (browser) {
+        console.log("🔍 [Web Pixel Gateway] Full browser object:", browser)
+        // Look for any property that might contain a URL
+        for (const [key, value] of Object.entries(browser)) {
+          if (typeof value === "string" && value.includes("myshopify.com")) {
+            try {
+              const url = new URL(value)
+              console.log(`🔍 [Web Pixel Gateway] Domain from browser.${key}:`, url.hostname)
+              return url.hostname
+            } catch (e) {
+              // Not a valid URL, continue
+            }
+          }
         }
       }
 
-      // Method 4: Check for pixel ID in configuration
-      if (configuration && configuration.accountID) {
-        console.log("🔍 [Pixel Detection] Found pixel ID in configuration.accountID:", configuration.accountID)
-        if (!detectedPixels.includes(configuration.accountID)) {
-          detectedPixels.push(configuration.accountID)
-        }
-      }
-
-      // Method 5: Check for pixel ID in analytics
-      if (analytics && analytics.meta && analytics.meta.pixelId) {
-        console.log("🔍 [Pixel Detection] Found pixel ID in analytics.meta.pixelId:", analytics.meta.pixelId)
-        if (!detectedPixels.includes(analytics.meta.pixelId)) {
-          detectedPixels.push(analytics.meta.pixelId)
-        }
-      }
-
-      console.log("🎯 [Pixel Detection] Total detected pixels:", detectedPixels)
-      return detectedPixels
+      console.log("⚠️ [Web Pixel Gateway] Domain detection sources checked:", sources)
+      return "unknown"
     } catch (error) {
-      console.error("💥 [Pixel Detection] Error detecting pixels:", error)
-      return []
+      console.error("💥 [Web Pixel Gateway] Error detecting shop domain:", error)
+      console.log("🔍 [Web Pixel Gateway] Sources checked before error:", sources)
+      return "unknown"
     }
   }
 
-  // Send debug data to our API
-  const sendDebugData = async () => {
-    try {
-      const currentUrl = getCurrentUrl()
-      const detectedPixels = detectExistingPixels()
+  // Initialize with API settings - NO HARDCODED FALLBACKS
+  const initializeWithConfig = async () => {
+    const detectedDomain = detectShopDomain()
+    console.log("🏪 [Web Pixel Gateway] Detected shop domain:", detectedDomain)
 
-      const debugData = {
-        currentUrl,
-        detectedPixels,
-        source: "web-pixel-runtime",
-        userAgent: browser?.navigator?.userAgent || "Unknown",
-        configAccountId: configuration?.accountID || null,
-        configData: configuration || null,
-        analyticsData: analytics?.meta || null,
-        timestamp: new Date().toISOString(),
-      }
-
-      console.log("📡 [Web Pixel Gateway] Sending debug data to API...", debugData)
-
-      const debugUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/debug/web-pixel-data"
-
-      fetch(debugUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(debugData),
-        mode: "cors",
-      })
-        .then((response) => {
-          console.log("📡 [Web Pixel Gateway] Debug API Response status:", response.status)
-          return response.json()
-        })
-        .then((data) => {
-          console.log("✅ [Web Pixel Gateway] Debug data sent successfully:", data)
-        })
-        .catch((error) => {
-          console.error("💥 [Web Pixel Gateway] Error sending debug data:", error)
-        })
-    } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error preparing debug data:", error)
-    }
-  }
-
-  // Initialize with pixel detection and smart configuration
-  const initializeWithDetection = async () => {
-    const currentUrl = getCurrentUrl()
-    const detectedPixels = detectExistingPixels()
-
-    // Send debug data first
-    await sendDebugData()
-
-    // Log all available configuration data
-    console.log("🔧 [Web Pixel Gateway] Configuration object:", configuration)
-    console.log("🔧 [Web Pixel Gateway] Analytics object:", analytics)
-    console.log("🌐 [Web Pixel Gateway] Current URL:", currentUrl)
-    console.log("🎯 [Web Pixel Gateway] Detected pixels:", detectedPixels)
-
+    // MUST get configuration from API - no hardcoded fallbacks for customer-facing app
     try {
       const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
-      const detectionUrl = `${gatewayUrl.replace("/track", "/detect-pixel")}`
+      const configUrl = `${gatewayUrl}/config`
 
-      console.log("📡 [Web Pixel Gateway] Sending detection data to API...")
+      console.log("📡 [Web Pixel Gateway] Fetching configuration from API...")
 
-      // Send detection data to our API - let the server determine the shop
-      const detectionResponse = await fetch(detectionUrl, {
+      // Use detected domain or fail gracefully
+      if (detectedDomain === "unknown") {
+        console.error("❌ [Web Pixel Gateway] Cannot detect shop domain - required for customer-facing app")
+        console.error("❌ [Web Pixel Gateway] This shop is not properly configured")
+        return // Exit without initializing - no hardcoded fallbacks
+      }
+
+      const response = await fetch(configUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
         body: JSON.stringify({
-          currentUrl: currentUrl,
-          detectedPixels: detectedPixels,
+          shop: detectedDomain,
           source: "web-pixel-runtime",
-          userAgent: browser?.navigator?.userAgent || "Unknown",
-          // Include configuration data
-          configAccountId: configuration?.accountID || null,
-          configData: configuration || null,
-          analyticsData: analytics?.meta || null,
+          customerFacing: true, // Flag to indicate this is customer-facing
         }),
         mode: "cors",
       })
 
-      console.log("📡 [Web Pixel Gateway] API Response status:", detectionResponse.status)
+      console.log("📡 [Web Pixel Gateway] API Response status:", response.status)
 
-      if (!detectionResponse.ok) {
-        throw new Error(`Detection failed: ${detectionResponse.status}`)
+      if (!response.ok) {
+        throw new Error(`Config fetch failed: ${response.status} ${response.statusText}`)
       }
 
-      const detectionData = await detectionResponse.json()
-      console.log("✅ [Web Pixel Gateway] Detection result:", detectionData)
+      const apiConfig = await response.json()
+      console.log("✅ [Web Pixel Gateway] API config received:", apiConfig)
 
-      if (detectionData.success && detectionData.recommendedPixelId && detectionData.hasAccessToken) {
-        console.log("🎯 [Web Pixel Gateway] ✅ USING SMART DETECTION")
-        console.log("   🏪 Shop:", detectionData.shop)
-        console.log("   📍 Recommended Pixel:", detectionData.recommendedPixelId)
-        console.log("   🔍 Detection Status:", detectionData.configurationStatus)
-        console.log("   🎯 Match Status:", detectionData.matchStatus)
-
-        return initializeTracking(
-          detectionData.recommendedPixelId,
-          gatewayUrl,
-          true,
-          `smart-detection-${detectionData.matchStatus}`,
-        )
+      if (apiConfig.success && apiConfig.pixelId) {
+        console.log("🎯 [Web Pixel Gateway] ✅ USING API CONFIG - Pixel ID:", apiConfig.pixelId)
+        console.log("🎯 [Web Pixel Gateway] ✅ Shop:", apiConfig.shop)
+        return initializeTracking(apiConfig.pixelId, gatewayUrl, true, "api")
       } else {
-        console.error("❌ [Web Pixel Gateway] Smart detection failed:", detectionData)
-        console.error("❌ [Web Pixel Gateway] Shop needs proper configuration")
-        return
+        throw new Error(`Invalid API response: ${JSON.stringify(apiConfig)}`)
       }
     } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Detection API failed:", error)
-      console.error("❌ [Web Pixel Gateway] Cannot initialize without proper detection")
+      console.error("💥 [Web Pixel Gateway] API fetch failed:", error)
+      console.error("❌ [Web Pixel Gateway] Cannot initialize tracking without valid configuration")
+      console.error("❌ [Web Pixel Gateway] This shop needs to be configured in the admin panel")
+
+      // NO HARDCODED FALLBACKS - customer must configure their shop properly
       return
     }
   }
@@ -216,6 +191,7 @@ register(({ configuration, analytics, browser }) => {
     console.log("   📍 Pixel ID:", pixelId)
     console.log("   🔗 Gateway URL:", gatewayUrl)
     console.log("   📊 Source:", source)
+    console.log("   🐛 Debug:", debug)
 
     // Helper function to safely get cookies
     const getCookies = () => {
@@ -248,11 +224,12 @@ register(({ configuration, analytics, browser }) => {
     // Helper function to get client information
     const getClientInfo = () => {
       try {
-        const url = getCurrentUrl()
+        let url = "https://unknown.com"
         let referrer = ""
 
-        if (browser && browser.document && browser.document.referrer) {
-          referrer = browser.document.referrer
+        if (browser) {
+          if (browser.url && browser.url.href) url = browser.url.href
+          if (browser.document && browser.document.referrer) referrer = browser.document.referrer
         }
 
         return {
@@ -267,7 +244,7 @@ register(({ configuration, analytics, browser }) => {
         return {
           user_agent: "Unknown",
           language: "en",
-          url: getCurrentUrl(),
+          url: "https://unknown.com",
           referrer: "",
           timestamp: new Date().toISOString(),
         }
@@ -306,7 +283,10 @@ register(({ configuration, analytics, browser }) => {
           },
         }
 
-        console.log(`📤 [Web Pixel Gateway] Sending ${eventName} event:`, eventData)
+        console.log(
+          `📤 [Web Pixel Gateway] Sending ${eventName} event to Pixel ${pixelId} (source: ${source}):`,
+          eventData,
+        )
 
         if (typeof fetch !== "undefined") {
           fetch(gatewayUrl, {
@@ -316,7 +296,9 @@ register(({ configuration, analytics, browser }) => {
             mode: "no-cors",
           })
             .then(() => {
-              console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
+              console.log(
+                `✅ [Web Pixel Gateway] Successfully sent ${eventName} event to Pixel ${pixelId} (source: ${source})`,
+              )
             })
             .catch((error) => {
               console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
@@ -349,7 +331,7 @@ register(({ configuration, analytics, browser }) => {
     analytics.subscribe("all_events", (event) => {
       try {
         const { name, data } = event
-        console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`)
+        console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`, { name, data })
 
         const fbEventName = eventMapping[name] || name
         let customData = {}
@@ -420,9 +402,241 @@ register(({ configuration, analytics, browser }) => {
       console.error("💥 [Web Pixel Gateway] Error sending initial PageView:", error)
     }
 
-    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized! (Config source: ${source})`)
+    console.log(
+      `🎉 [Web Pixel Gateway] Extension fully initialized and ready to track events! (Config source: ${source})`,
+    )
   }
 
-  // Start initialization with smart detection
-  initializeWithDetection()
+  // Function to detect Facebook Pixels on the page
+  const detectFacebookPixels = () => {
+    const detectedPixels = []
+
+    // Check for global fbq function
+    if (typeof window.fbq === "function") {
+      console.log("🎯 [Web Pixel Gateway] Found global fbq function")
+      detectedPixels.push("Global fbq function")
+    }
+
+    // Check for Facebook Pixel script tags
+    const scripts = document.querySelectorAll("script")
+    for (const script of scripts) {
+      const src = script.src || ""
+      if (src.includes("connect.facebook.net") || src.includes("facebook.com/tr")) {
+        console.log("🎯 [Web Pixel Gateway] Found Facebook Pixel script:", src)
+        detectedPixels.push(src)
+      }
+    }
+
+    // Check for Facebook Pixel noscript tags
+    const noscripts = document.querySelectorAll("noscript")
+    for (const noscript of noscripts) {
+      if (noscript.innerHTML.includes("facebook.com/tr")) {
+        console.log("🎯 [Web Pixel Gateway] Found Facebook Pixel noscript")
+        detectedPixels.push("Noscript pixel")
+      }
+    }
+
+    return detectedPixels
+  }
+
+  // Function to get pixel ID from configuration or fallback
+  const getPixelId = () => {
+    // First try to get from configuration
+    const accountID = configuration?.accountID || null
+    console.log("🎯 [Web Pixel Gateway] Account ID:", accountID)
+
+    // Check if we have a valid account ID
+    if (accountID) {
+      return accountID
+    }
+
+    // Then try to get from API
+    return fetch("/api/track/config")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`)
+        }
+        return response.json()
+      })
+      .then((data) => {
+        if (data.pixelId) {
+          console.log("🎯 [Web Pixel Gateway] Got pixel ID from API:", data.pixelId)
+          return data.pixelId
+        }
+        throw new Error("No pixel ID in API response")
+      })
+      .catch((error) => {
+        console.error("💥 [Web Pixel Gateway] Error getting pixel ID from API:", error)
+        // Fallback to environment variable
+        return process.env.NEXT_PUBLIC_TEST_PIXEL_ID || "584928510540140"
+      })
+  }
+
+  // Initialize Facebook Pixel
+  const initFacebookPixel = (pixelId) => {
+    console.log("🎯 [Web Pixel Gateway] Initializing Facebook Pixel:", pixelId)
+
+    // Add Facebook Pixel base code
+    !((f, b, e, v, n, t, s) => {
+      if (f.fbq) return
+      n = f.fbq = () => {
+        n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments)
+      }
+      if (!f._fbq) f._fbq = n
+      n.push = n
+      n.loaded = !0
+      n.version = "2.0"
+      n.queue = []
+      t = b.createElement(e)
+      t.async = !0
+      t.src = v
+      s = b.getElementsByTagName(e)[0]
+      s.parentNode.insertBefore(t, s)
+    })(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js")
+
+    // Initialize with the pixel ID
+    window.fbq("init", pixelId)
+    console.log("✅ [Web Pixel Gateway] Facebook Pixel initialized")
+  }
+
+  // Subscribe to page view events
+  analytics.subscribe("page_viewed", (event) => {
+    console.log("🎯 [Web Pixel Gateway] Page viewed event:", event)
+
+    // Get pixel ID and initialize Facebook Pixel
+    getPixelId().then((pixelId) => {
+      initFacebookPixel(pixelId)
+
+      // Track page view
+      window.fbq("track", "PageView")
+      console.log("✅ [Web Pixel Gateway] Tracked PageView event")
+    })
+  })
+
+  // Subscribe to product viewed events
+  analytics.subscribe("product_viewed", (event) => {
+    console.log("🎯 [Web Pixel Gateway] Product viewed event:", event)
+
+    // Get pixel ID and initialize Facebook Pixel if needed
+    getPixelId().then((pixelId) => {
+      if (!window.fbq) {
+        initFacebookPixel(pixelId)
+      }
+
+      // Track ViewContent event
+      const product = event.data.productVariant
+      window.fbq("track", "ViewContent", {
+        content_ids: [product.id || product.product_id || product.productId || ""],
+        content_name: product.title || product.name || "",
+        content_type: "product",
+        value: Number.parseFloat(product.price?.amount || product.price || "0"),
+        currency: product.price?.currencyCode || "USD",
+      })
+      console.log("✅ [Web Pixel Gateway] Tracked ViewContent event")
+    })
+  })
+
+  // Subscribe to add to cart events
+  analytics.subscribe("product_added_to_cart", (event) => {
+    console.log("🎯 [Web Pixel Gateway] Product added to cart event:", event)
+
+    // Get pixel ID and initialize Facebook Pixel if needed
+    getPixelId().then((pixelId) => {
+      if (!window.fbq) {
+        initFacebookPixel(pixelId)
+      }
+
+      // Track AddToCart event
+      const product = event.data.cartLine
+      window.fbq("track", "AddToCart", {
+        content_ids: [product.merchandise?.id || product.product_id || ""],
+        content_name: product.merchandise?.product?.title || "",
+        content_type: "product",
+        value: Number.parseFloat(product.cost?.totalAmount?.amount || "0"),
+        currency: product.cost?.totalAmount?.currencyCode || "USD",
+        contents: [
+          {
+            id: product.merchandise?.id || product.product_id || "",
+            quantity: product.quantity || 1,
+          },
+        ],
+      })
+      console.log("✅ [Web Pixel Gateway] Tracked AddToCart event")
+    })
+  })
+
+  // Subscribe to checkout events
+  analytics.subscribe("checkout_started", (event) => {
+    console.log("🎯 [Web Pixel Gateway] Checkout started event:", event)
+
+    // Get pixel ID and initialize Facebook Pixel if needed
+    getPixelId().then((pixelId) => {
+      if (!window.fbq) {
+        initFacebookPixel(pixelId)
+      }
+
+      // Track InitiateCheckout event
+      const checkout = event.data.checkout
+      window.fbq("track", "InitiateCheckout", {
+        content_ids: checkout.lineItems?.map((item) => item.merchandise?.id || item.variant_id || "") || [],
+        value: Number.parseFloat(checkout.totalPrice?.amount || "0"),
+        currency: checkout.totalPrice?.currencyCode || "USD",
+        num_items: checkout.lineItems?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 0,
+      })
+      console.log("✅ [Web Pixel Gateway] Tracked InitiateCheckout event")
+    })
+  })
+
+  // Subscribe to purchase events
+  analytics.subscribe("checkout_completed", (event) => {
+    console.log("🎯 [Web Pixel Gateway] Checkout completed event:", event)
+
+    // Get pixel ID and initialize Facebook Pixel if needed
+    getPixelId().then((pixelId) => {
+      if (!window.fbq) {
+        initFacebookPixel(pixelId)
+      }
+
+      // Track Purchase event
+      const checkout = event.data.checkout
+      window.fbq("track", "Purchase", {
+        content_ids: checkout.lineItems?.map((item) => item.merchandise?.id || item.variant_id || "") || [],
+        value: Number.parseFloat(checkout.totalPrice?.amount || "0"),
+        currency: checkout.totalPrice?.currencyCode || "USD",
+        contents:
+          checkout.lineItems?.map((item) => ({
+            id: item.merchandise?.id || item.variant_id || "",
+            quantity: item.quantity || 1,
+          })) || [],
+      })
+      console.log("✅ [Web Pixel Gateway] Tracked Purchase event")
+    })
+  })
+
+  // Send debug data to our API
+  try {
+    const debugData = {
+      shop: window.Shopify?.shop || document.location.hostname,
+      configAccountId: configuration?.accountID || null,
+      configData: configuration,
+      analyticsData: window.analytics || {},
+      detectedPixels: detectFacebookPixels(),
+    }
+
+    fetch("/api/debug/web-pixel-data", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(debugData),
+      keepalive: true,
+    }).catch((error) => {
+      console.error("💥 [Web Pixel Gateway] Error sending debug data:", error)
+    })
+  } catch (error) {
+    console.error("💥 [Web Pixel Gateway] Error preparing debug data:", error)
+  }
+
+  // Start initialization
+  initializeWithConfig()
 })
