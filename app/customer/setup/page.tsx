@@ -1,21 +1,29 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink, Clock } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink, Clock, Info } from "lucide-react"
 
 export default function CustomerSetup() {
   const [shop, setShop] = useState("")
   const [loading, setLoading] = useState(true)
   const [configured, setConfigured] = useState(false)
-  const [pixelId, setPixelId] = useState<string | null>(null)
-  const [pixelName, setPixelName] = useState<string | null>(null)
+  const [pixelId, setPixelId] = useState<string>("")
+  const [accessToken, setAccessToken] = useState<string>("")
+  const [pixelName, setPixelName] = useState<string>("")
   const [configurationStatus, setConfigurationStatus] = useState<string>("")
   const [message, setMessage] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [testingEvents, setTestingEvents] = useState(false)
+  const [configuring, setConfiguring] = useState(false)
+  const [success, setSuccess] = useState<string | null>(null)
 
   // Get shop from URL params or cookies
   useEffect(() => {
@@ -44,6 +52,7 @@ export default function CustomerSetup() {
 
   const checkConfiguration = async (shopDomain: string) => {
     try {
+      setLoading(true)
       const response = await fetch(`/api/customer/setup-pixel?shop=${shopDomain}`)
       const data = await response.json()
 
@@ -51,13 +60,13 @@ export default function CustomerSetup() {
 
       if (data.success) {
         setConfigured(data.configured)
-        setPixelId(data.pixelId)
-        setPixelName(data.pixelName)
+        if (data.pixelId) setPixelId(data.pixelId)
+        if (data.pixelName) setPixelName(data.pixelName)
         setConfigurationStatus(data.configurationStatus)
         setMessage(data.message)
 
         if (!data.configured) {
-          setError(data.message || "Your Facebook Pixel has not been configured yet.")
+          setError(null) // Clear error since we'll show the configuration form
         } else {
           setError(null)
         }
@@ -69,6 +78,47 @@ export default function CustomerSetup() {
       setError("Failed to check configuration")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleConfigurePixel = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setConfiguring(true)
+    setError(null)
+    setSuccess(null)
+
+    if (!pixelId || !accessToken) {
+      setError("Pixel ID and Access Token are required")
+      setConfiguring(false)
+      return
+    }
+
+    try {
+      const response = await fetch("/api/customer/setup-pixel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shop,
+          pixelId,
+          accessToken,
+          pixelName: pixelName || `${shop} Pixel`,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setSuccess("Facebook Pixel configured successfully!")
+        // Refresh the configuration status
+        checkConfiguration(shop)
+      } else {
+        setError(data.error || "Failed to configure pixel")
+      }
+    } catch (err) {
+      console.error("Error configuring pixel:", err)
+      setError("An error occurred while configuring the pixel")
+    } finally {
+      setConfiguring(false)
     }
   }
 
@@ -233,58 +283,167 @@ export default function CustomerSetup() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <Alert variant={configurationStatus === "shop_not_found" ? "destructive" : "default"}>
-                {configurationStatus === "shop_not_found" ? (
-                  <AlertCircle className="h-4 w-4" />
-                ) : (
-                  <Clock className="h-4 w-4" />
-                )}
-                <AlertDescription>
-                  <strong>
-                    {configurationStatus === "shop_not_found" ? "Shop Not Found" : "Configuration Pending"}
-                  </strong>
-                  <br />
-                  {message}
-                  {pixelId && (
-                    <>
-                      <br />
-                      <strong>Detected Pixel ID:</strong> {pixelId}
-                    </>
-                  )}
-                </AlertDescription>
-              </Alert>
+            <Tabs defaultValue="self-service" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="self-service">Configure Now</TabsTrigger>
+                <TabsTrigger value="admin-service">Admin Service</TabsTrigger>
+              </TabsList>
 
-              <div className="space-y-2">
-                <h3 className="font-semibold">What happens next?</h3>
-                <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
+              <TabsContent value="self-service" className="space-y-4 mt-4">
+                <Alert variant="default" className="mb-4">
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Configure your Facebook Pixel</strong>
+                    <br />
+                    Enter your Facebook Pixel ID and Access Token to start tracking events immediately.
+                  </AlertDescription>
+                </Alert>
+
+                {error && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                {success && (
+                  <Alert variant="default" className="mb-4 bg-green-50 border-green-200">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <AlertDescription className="text-green-700">{success}</AlertDescription>
+                  </Alert>
+                )}
+
+                <form onSubmit={handleConfigurePixel} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="pixelId">Facebook Pixel ID *</Label>
+                    <Input
+                      id="pixelId"
+                      value={pixelId}
+                      onChange={(e) => setPixelId(e.target.value)}
+                      placeholder="123456789012345"
+                      required
+                    />
+                    <p className="text-xs text-gray-500">
+                      Find this in your Facebook Events Manager under Data Sources
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="accessToken">Facebook Access Token *</Label>
+                    <Input
+                      id="accessToken"
+                      type="password"
+                      value={accessToken}
+                      onChange={(e) => setAccessToken(e.target.value)}
+                      placeholder="EAABsbCc1234567890..."
+                      required
+                    />
+                    <p className="text-xs text-gray-500">
+                      Generate this in Facebook Business Settings under System Users
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="pixelName">Pixel Name (Optional)</Label>
+                    <Input
+                      id="pixelName"
+                      value={pixelName}
+                      onChange={(e) => setPixelName(e.target.value)}
+                      placeholder="My Store Pixel"
+                    />
+                  </div>
+
+                  <Button type="submit" disabled={configuring} className="w-full">
+                    {configuring ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Configuring...
+                      </>
+                    ) : (
+                      "Configure Pixel"
+                    )}
+                  </Button>
+                </form>
+
+                <div className="p-4 bg-blue-50 rounded-lg mt-4">
+                  <h4 className="font-medium text-blue-900 mb-2">How to find your Pixel ID</h4>
+                  <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                    <li>
+                      Go to your{" "}
+                      <a
+                        href="https://business.facebook.com/events_manager"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Facebook Events Manager
+                      </a>
+                    </li>
+                    <li>Select your pixel under "Data Sources"</li>
+                    <li>Click on "Settings"</li>
+                    <li>Your Pixel ID is displayed at the top</li>
+                  </ol>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="admin-service" className="space-y-4 mt-4">
+                <Alert variant={configurationStatus === "shop_not_found" ? "destructive" : "default"}>
                   {configurationStatus === "shop_not_found" ? (
+                    <AlertCircle className="h-4 w-4" />
+                  ) : (
+                    <Clock className="h-4 w-4" />
+                  )}
+                  <AlertDescription>
+                    <strong>
+                      {configurationStatus === "shop_not_found" ? "Shop Not Found" : "Configuration Pending"}
+                    </strong>
+                    <br />
+                    {message}
+                    {pixelId && (
+                      <>
+                        <br />
+                        <strong>Detected Pixel ID:</strong> {pixelId}
+                      </>
+                    )}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="space-y-2">
+                  <h3 className="font-semibold">What happens next?</h3>
+                  <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
+                    {configurationStatus === "shop_not_found" ? (
+                      <>
+                        <li>Please reinstall the app to register your shop</li>
+                        <li>Contact support if the issue persists</li>
+                      </>
+                    ) : (
+                      <>
+                        <li>Our team will configure your Facebook Pixel within 24-48 hours</li>
+                        <li>You'll receive an email notification when setup is complete</li>
+                        <li>No action required from you - everything is handled automatically</li>
+                        <li>Return to this page to check your configuration status</li>
+                      </>
+                    )}
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={() => checkConfiguration(shop)}
+                  variant="outline"
+                  className="w-full"
+                  disabled={loading}
+                >
+                  {loading ? (
                     <>
-                      <li>Please reinstall the app to register your shop</li>
-                      <li>Contact support if the issue persists</li>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Checking...
                     </>
                   ) : (
-                    <>
-                      <li>Our team will configure your Facebook Pixel within 24-48 hours</li>
-                      <li>You'll receive an email notification when setup is complete</li>
-                      <li>No action required from you - everything is handled automatically</li>
-                      <li>Return to this page to check your configuration status</li>
-                    </>
+                    "Check Configuration Status"
                   )}
-                </ul>
-              </div>
-
-              <Button onClick={() => checkConfiguration(shop)} variant="outline" className="w-full" disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  "Check Configuration Status"
-                )}
-              </Button>
-            </div>
+                </Button>
+              </TabsContent>
+            </Tabs>
           )}
         </CardContent>
       </Card>

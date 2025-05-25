@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { prisma } from "@/lib/db"
+import { getShopData } from "@/lib/db-auth"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,30 +8,94 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 }
 
-export async function GET(request: Request) {
+export async function POST(request: Request) {
   try {
-    const url = new URL(request.url)
-    const shop = url.searchParams.get("shop")
+    const { shop, pixelId, accessToken, pixelName } = await request.json()
 
-    console.log("🔍 [Customer Setup] Checking configuration for shop:", shop)
+    console.log("🎯 [Customer Setup] Setting up pixel for shop:", shop)
 
-    if (!shop) {
+    // Validate required fields
+    if (!shop || !pixelId || !accessToken) {
       return NextResponse.json(
-        { success: false, error: "Shop parameter is required" },
+        { success: false, error: "Shop, Pixel ID, and Access Token are required" },
         { status: 400, headers: corsHeaders },
       )
     }
 
-    // Clean shop domain - try multiple variations
+    // Verify shop is authenticated
+    const shopData = await getShopData(shop)
+    if (!shopData || !shopData.installed) {
+      return NextResponse.json({ success: false, error: "Shop not found or not installed" }, { status: 404 })
+    }
+
     const cleanShop = shop
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
       .replace(/\/$/, "")
       .toLowerCase()
 
-    console.log("🏪 [Customer Setup] Looking up shop variations:")
-    console.log("   - Original:", shop)
-    console.log("   - Cleaned:", cleanShop)
+    // Create or update pixel configuration
+    const pixelConfig = await prisma.pixelConfig.upsert({
+      where: { pixelId: pixelId },
+      update: {
+        accessToken: accessToken,
+        name: pixelName || `${cleanShop} Pixel`,
+        updatedAt: new Date(),
+      },
+      create: {
+        pixelId: pixelId,
+        accessToken: accessToken,
+        name: pixelName || `${cleanShop} Pixel`,
+      },
+    })
+
+    // Link shop to pixel configuration
+    await prisma.shopConfig.update({
+      where: { shopDomain: cleanShop },
+      data: {
+        pixelConfigId: pixelConfig.id,
+        gatewayEnabled: true,
+        updatedAt: new Date(),
+      },
+    })
+
+    console.log("✅ [Customer Setup] Pixel configured successfully for:", cleanShop)
+
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Facebook Pixel configured successfully",
+        pixelId: pixelConfig.pixelId,
+        shop: cleanShop,
+      },
+      { headers: corsHeaders },
+    )
+  } catch (error) {
+    console.error("💥 [Customer Setup] Error:", error)
+    return NextResponse.json(
+      { success: false, error: "Failed to configure pixel" },
+      { status: 500, headers: corsHeaders },
+    )
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const shop = searchParams.get("shop")
+
+    if (!shop) {
+      return NextResponse.json(
+        { success: false, error: "Shop parameter required" },
+        { status: 400, headers: corsHeaders },
+      )
+    }
+
+    const cleanShop = shop
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .toLowerCase()
 
     // Try multiple shop domain variations to find a match
     const shopConfig = await prisma.shopConfig.findFirst({
@@ -119,7 +184,7 @@ export async function GET(request: Request) {
           pixelName: shopConfig.pixelConfig.name,
           shop: shopConfig.shopDomain,
           configurationStatus: "pixel_exists_no_token",
-          message: "Pixel found but access token missing - contact admin to complete setup",
+          message: "Pixel found but access token missing - please configure below",
         },
         { headers: corsHeaders },
       )
@@ -134,7 +199,7 @@ export async function GET(request: Request) {
           pixelName: null,
           shop: shopConfig.shopDomain,
           configurationStatus: "orphaned_pixel_reference",
-          message: "Pixel configuration corrupted - contact admin to fix",
+          message: "Pixel configuration corrupted - please configure below",
         },
         { headers: corsHeaders },
       )
@@ -149,7 +214,7 @@ export async function GET(request: Request) {
           pixelName: null,
           shop: shopConfig.shopDomain,
           configurationStatus: "shop_exists_no_pixel",
-          message: "Shop is registered but pixel needs to be configured by admin",
+          message: "Shop is registered but pixel needs to be configured - please enter your details below",
         },
         { headers: corsHeaders },
       )
