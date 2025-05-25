@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { activateWebPixel } from "@/lib/shopify-graphql"
+import { validateHmac, getAccessToken } from "@/lib/shopify"
+import { storeShopData } from "@/lib/db-auth"
 
 // Function to detect Facebook Pixel ID from a website
 async function detectFacebookPixel(url: string): Promise<string | null> {
@@ -56,12 +58,19 @@ export async function GET(request: NextRequest) {
     const code = url.searchParams.get("code")
     const shop = url.searchParams.get("shop")
     const state = url.searchParams.get("state")
+    const hmac = url.searchParams.get("hmac")
 
     console.log("OAuth callback received:", { shop, code: code ? "✓" : "✗", state: state ? "✓" : "✗" })
 
-    if (!shop || !code) {
-      console.error("Missing required parameters:", { shop, code: code ? "✓" : "✗" })
-      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=missing_params`)
+    if (!shop || !code || !hmac) {
+      console.error("Missing required parameters:", { shop, code: code ? "✓" : "✗", hmac: hmac ? "✓" : "✗" })
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_HOST || ""}/auth/error?error=missing_params`)
+    }
+
+    // Verify HMAC
+    if (!validateHmac(request)) {
+      console.error("HMAC validation failed")
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_HOST || ""}/auth/error?error=invalid_hmac`)
     }
 
     // Parse state parameter for pixel ID
@@ -77,22 +86,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Exchange code for access token
-    const accessTokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: process.env.SHOPIFY_API_KEY,
-        client_secret: process.env.SHOPIFY_API_SECRET,
-        code,
-      }),
-    })
-
-    if (!accessTokenResponse.ok) {
-      console.error("Failed to get access token:", await accessTokenResponse.text())
-      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=token_exchange`)
+    const accessToken = await getAccessToken(shop, code)
+    if (!accessToken) {
+      console.error("Failed to get access token")
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_HOST || ""}/auth/error?error=token_exchange`)
     }
-
-    const { access_token } = await accessTokenResponse.json()
 
     // Clean up shop domain
     const cleanShop = shop
@@ -116,6 +114,14 @@ export async function GET(request: NextRequest) {
 
     // Store shop data in database
     try {
+      // Store shop auth data
+      await storeShopData({
+        shop: cleanShop,
+        accessToken,
+        scopes: process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events",
+        installed: true,
+      })
+
       // Create or update pixel config if we have a pixel ID
       let pixelConfigId = null
       if (pixelId) {
@@ -135,13 +141,11 @@ export async function GET(request: NextRequest) {
       await prisma.shopConfig.upsert({
         where: { shopDomain: cleanShop },
         update: {
-          accessToken: access_token,
           updatedAt: new Date(),
           ...(pixelConfigId ? { pixelConfigId } : {}),
         },
         create: {
           shopDomain: cleanShop,
-          accessToken: access_token,
           ...(pixelConfigId ? { pixelConfigId } : {}),
         },
       })
@@ -149,13 +153,13 @@ export async function GET(request: NextRequest) {
       console.log("Shop data stored successfully")
     } catch (error) {
       console.error("Error storing shop data:", error)
-      return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=database`)
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_HOST || ""}/auth/error?error=database`)
     }
 
     // Activate Web Pixel
     try {
       console.log("Activating Web Pixel for shop:", cleanShop)
-      const result = await activateWebPixel(cleanShop, access_token, pixelId)
+      const result = await activateWebPixel(cleanShop, accessToken, pixelId)
       console.log("Web Pixel activation result:", result)
     } catch (error) {
       console.error("Error activating Web Pixel:", error)
@@ -163,9 +167,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Redirect to success page
-    return NextResponse.redirect(`${process.env.HOST || ""}/auth/success?shop=${encodeURIComponent(cleanShop)}`)
+    return NextResponse.redirect(
+      `${process.env.NEXT_PUBLIC_HOST || ""}/auth/success?shop=${encodeURIComponent(cleanShop)}`,
+    )
   } catch (error) {
     console.error("OAuth callback error:", error)
-    return NextResponse.redirect(`${process.env.HOST || ""}/auth/error?error=unknown`)
+    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_HOST || ""}/auth/error?error=unknown`)
   }
 }
