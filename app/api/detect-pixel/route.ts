@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server"
 
+// Add CORS headers to fix the preflight request issue
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent, Origin, Referer",
+  "Access-Control-Max-Age": "86400", // 24 hours
+}
+
 export async function POST(request: Request) {
   const body = await request.json()
 
@@ -32,7 +40,7 @@ export async function POST(request: Request) {
         error: "Could not determine shop domain",
         currentUrl: body.currentUrl,
       },
-      { status: 400 },
+      { status: 400, headers: corsHeaders },
     )
   }
 
@@ -42,11 +50,14 @@ export async function POST(request: Request) {
     // Placeholder for pixel detection logic
     console.log("Pixel detection logic would be implemented here.")
 
-    return NextResponse.json({
-      success: true,
-      shop: shopDomain,
-      message: "Pixel detection request received",
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        shop: shopDomain,
+        message: "Pixel detection request received",
+      },
+      { headers: corsHeaders },
+    )
   } catch (error: any) {
     console.error("Pixel detection error:", error)
     return NextResponse.json(
@@ -54,7 +65,15 @@ export async function POST(request: Request) {
         success: false,
         error: error.message || "An unexpected error occurred",
       },
-      { status: 500 },
+      { status: 500, headers: corsHeaders },
     )
   }
+}
+
+// Add OPTIONS method to handle preflight requests
+export async function OPTIONS(request: Request) {
+  return new Response(null, {
+    headers: corsHeaders,
+    status: 204,
+  })
 }

@@ -6,54 +6,12 @@ register(({ configuration, analytics, browser }) => {
   console.log("🔍 [Web Pixel Gateway] Configuration:", configuration)
   console.log("🔍 [Web Pixel Gateway] Analytics:", analytics)
 
-  // Enhanced function to detect existing Facebook Pixels on the website
-  const detectExistingPixels = () => {
-    const detectedPixels = []
+  // Get the pixel ID from configuration
+  let pixelId = configuration.accountID || null
+  console.log("🎯 [Web Pixel Gateway] Pixel ID from configuration:", pixelId)
 
-    try {
-      // Method 1: Check for fbq global function
-      if (typeof window !== "undefined" && window.fbq && window.fbq._pixelId) {
-        console.log("🔍 [Pixel Detection] Found fbq._pixelId:", window.fbq._pixelId)
-        detectedPixels.push(window.fbq._pixelId)
-      }
-
-      // Method 2: Check for Facebook Pixel script tags
-      if (typeof document !== "undefined") {
-        const scripts = document.querySelectorAll("script")
-        scripts.forEach((script) => {
-          const content = script.textContent || script.innerHTML
-
-          // Look for fbq('init', 'PIXEL_ID') patterns
-          const initMatches = content.match(/fbq\s*\(\s*['"]init['"],\s*['"](\d+)['"]/g)
-          if (initMatches) {
-            initMatches.forEach((match) => {
-              const pixelMatch = match.match(/['"](\d+)['"]/)
-              if (pixelMatch && pixelMatch[1]) {
-                console.log("🔍 [Pixel Detection] Found pixel in script:", pixelMatch[1])
-                if (!detectedPixels.includes(pixelMatch[1])) {
-                  detectedPixels.push(pixelMatch[1])
-                }
-              }
-            })
-          }
-        })
-      }
-
-      // Method 3: Check for _fbp cookie (indicates pixel presence)
-      if (typeof document !== "undefined") {
-        const fbpCookie = document.cookie.match(/_fbp=([^;]+)/)
-        if (fbpCookie) {
-          console.log("🔍 [Pixel Detection] Found _fbp cookie, indicating pixel presence")
-        }
-      }
-
-      console.log("🎯 [Pixel Detection] Total detected pixels:", detectedPixels)
-      return detectedPixels
-    } catch (error) {
-      console.error("💥 [Pixel Detection] Error detecting pixels:", error)
-      return []
-    }
-  }
+  // Get the gateway URL from configuration or use default
+  const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
 
   // Get current page URL for shop identification
   const getCurrentUrl = () => {
@@ -86,27 +44,26 @@ register(({ configuration, analytics, browser }) => {
     }
   }
 
-  // Initialize with pixel detection and smart configuration
-  const initializeWithDetection = async () => {
-    const currentUrl = getCurrentUrl()
-    const detectedPixels = detectExistingPixels()
+  // Initialize tracking
+  const initializeTracking = async () => {
     const shopDomain = getShopDomain()
-
-    console.log("🌐 [Web Pixel Gateway] Current URL:", currentUrl)
     console.log("🏪 [Web Pixel Gateway] Shop Domain:", shopDomain)
-    console.log("🎯 [Web Pixel Gateway] Detected pixels:", detectedPixels)
-
-    // First try to get pixel ID from configuration
-    let pixelId = configuration.accountID || null
-    console.log("🎯 [Web Pixel Gateway] Pixel ID from configuration:", pixelId)
 
     // If no pixel ID in configuration, try to get from API
     if (!pixelId) {
       try {
         console.log("🔍 [Web Pixel Gateway] Fetching pixel ID from API...")
-        const configResponse = await fetch(
-          `https://v0-node-js-serverless-api-lake.vercel.app/api/track/config?shop=${shopDomain}`,
-        )
+        const configUrl = `${gatewayUrl.replace("/track", "/track/config")}?shop=${shopDomain}`
+        console.log("🔗 [Web Pixel Gateway] Config URL:", configUrl)
+
+        const configResponse = await fetch(configUrl, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          mode: "cors",
+        })
 
         if (configResponse.ok) {
           const config = await configResponse.json()
@@ -126,28 +83,11 @@ register(({ configuration, analytics, browser }) => {
       }
     }
 
-    // If still no pixel ID, try detected pixels
-    if (!pixelId && detectedPixels.length > 0) {
-      pixelId = detectedPixels[0]
-      console.log("🎯 [Web Pixel Gateway] Using detected pixel ID:", pixelId)
-    }
-
     // If still no pixel ID, use fallback
     if (!pixelId) {
       pixelId = "584928510540140" // Fallback to test pixel
       console.log("⚠️ [Web Pixel Gateway] Using fallback pixel ID:", pixelId)
     }
-
-    // Initialize tracking with the pixel ID
-    initializeTracking(pixelId, "https://v0-node-js-serverless-api-lake.vercel.app/api/track", true, "auto-detection")
-  }
-
-  // Initialize tracking with the given pixel ID
-  const initializeTracking = (pixelId, gatewayUrl, debug, source) => {
-    console.log("🚀 [Web Pixel Gateway] Initializing tracking with:")
-    console.log("   📍 Pixel ID:", pixelId)
-    console.log("   🔗 Gateway URL:", gatewayUrl)
-    console.log("   📊 Source:", source)
 
     // Helper function to safely get cookies
     const getCookies = () => {
@@ -211,7 +151,6 @@ register(({ configuration, analytics, browser }) => {
       try {
         const cookies = getCookies()
         const clientInfo = getClientInfo()
-        const shopDomain = getShopDomain()
 
         const userData = {
           client_user_agent: clientInfo.user_agent,
@@ -229,14 +168,13 @@ register(({ configuration, analytics, browser }) => {
           event_name: eventName,
           event_time: Math.floor(Date.now() / 1000),
           event_source_url: clientInfo.url,
+          shop_domain: shopDomain,
           user_data: userData,
           custom_data: {
             ...customData,
             shopify_source: true,
-            config_source: source,
-            shop_domain: shopDomain,
             client_info: clientInfo,
-            ...(debug && { shopify_event_data: shopifyEventData }),
+            shopify_event_data: shopifyEventData,
           },
         }
 
@@ -245,20 +183,16 @@ register(({ configuration, analytics, browser }) => {
         if (typeof fetch !== "undefined") {
           fetch(gatewayUrl, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
             body: JSON.stringify(eventData),
             keepalive: true, // Ensure the request completes even if the page unloads
+            mode: "no-cors", // Use no-cors mode to avoid CORS issues
           })
-            .then((response) => {
-              if (response.ok) {
-                console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
-                return response.json()
-              } else {
-                throw new Error(`Gateway returned ${response.status}`)
-              }
-            })
-            .then((data) => {
-              console.log(`✅ [Web Pixel Gateway] Response data:`, data)
+            .then(() => {
+              console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
             })
             .catch((error) => {
               console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
@@ -292,7 +226,6 @@ register(({ configuration, analytics, browser }) => {
       try {
         const { name, data } = event
         console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`)
-        console.log(`🔔 [Web Pixel Gateway] Event data:`, data)
 
         const fbEventName = eventMapping[name] || name
         let customData = {}
@@ -378,9 +311,9 @@ register(({ configuration, analytics, browser }) => {
       console.error("💥 [Web Pixel Gateway] Error sending initial PageView:", error)
     }
 
-    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized! (Config source: ${source})`)
+    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized!`)
   }
 
-  // Start initialization with smart detection
-  initializeWithDetection()
+  // Start initialization
+  initializeTracking()
 })
