@@ -1,258 +1,204 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Textarea } from "@/components/ui/textarea"
-import { Info, Copy, CheckCircle, Globe } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle, Copy, Check } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-export default function WebsiteSetupPage() {
+export default function WebsiteSetup() {
   const searchParams = useSearchParams()
-
   const [pixelId, setPixelId] = useState("")
   const [accessToken, setAccessToken] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [isConfiguring, setIsConfiguring] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [script, setScript] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isConfigured, setIsConfigured] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Check for UTM parameters
+  // Get pixel ID from URL parameters if available
   useEffect(() => {
-    const utmPixelId = searchParams.get("utm_pixel_id") || searchParams.get("pixel_id")
-    if (utmPixelId) {
-      setPixelId(utmPixelId)
+    const pixelIdParam = searchParams.get("pixel_id") || searchParams.get("utm_pixel_id")
+    if (pixelIdParam) {
+      setPixelId(pixelIdParam)
     }
   }, [searchParams])
 
+  // Generate the tracking script
   const generateScript = () => {
-    if (!pixelId) {
-      setError("Please enter your Facebook Pixel ID")
-      return
-    }
-
-    setIsGenerating(true)
-    setError(null)
-
-    // Get the host URL
     const host = process.env.NEXT_PUBLIC_HOST || window.location.origin
-
-    // Generate the script
-    const scriptContent = `
-<!-- Facebook Pixel Gateway -->
+    return `<!-- Facebook Pixel Gateway -->
 <script>
-  !function(f,b,e,v,n,t,s) {
-    if(f.fbq) return; n=f.fbq=function() {
-      n.callMethod ? n.callMethod.apply(n,arguments) : n.queue.push(arguments)
-    };
-    if(!f._fbq) f._fbq=n; n.push=n; n.loaded=!0; n.version='2.0';
-    n.queue=[]; t=b.createElement(e); t.async=!0;
-    t.src=v; s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)
-  }(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-  
-  // Initialize with your Pixel ID
-  fbq('init', '${pixelId}');
-  
-  // Track PageView
-  fbq('track', 'PageView');
-  
-  // Send all events through our gateway
-  var originalFbq = fbq;
-  fbq = function() {
-    // Call original fbq
-    originalFbq.apply(this, arguments);
-    
-    // Only forward tracking events to gateway
-    if(arguments[0] === 'track') {
-      var eventName = arguments[1];
-      var eventData = arguments[2] || {};
-      
-      // Send to gateway
-      fetch('${host}/api/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pixelId: '${pixelId}',
-          eventName: eventName,
-          eventData: eventData,
-          pageUrl: window.location.href,
-          timestamp: new Date().toISOString(),
-          source: 'website-script'
-        }),
-        keepalive: true
-      }).catch(function(err) {
-        console.error('Facebook Pixel Gateway error:', err);
-      });
-    }
-  };
+(function(w,d,s,l,i){
+  w[l]=w[l]||[];
+  w[l].push({'pixelId':i});
+  var f=d.getElementsByTagName(s)[0],
+      j=d.createElement(s),
+      dl=l!='dataLayer'?'&l='+l:'';
+  j.async=true;
+  j.src='${host}/client-script.js';
+  f.parentNode.insertBefore(j,f);
+})(window,document,'script','fbPixelGateway','${pixelId}');
 </script>
-<!-- End Facebook Pixel Gateway -->
-`.trim()
-
-    setScript(scriptContent)
-    setIsGenerating(false)
+<!-- End Facebook Pixel Gateway -->`
   }
 
-  const saveConfiguration = async () => {
-    if (!pixelId) {
-      setError("Please enter your Facebook Pixel ID")
-      return
-    }
+  // Copy script to clipboard
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(generateScript())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
-    setIsConfiguring(true)
+  // Save configuration to database
+  const saveConfiguration = async () => {
     setError(null)
+    setIsLoading(true)
 
     try {
+      // Validate inputs
+      if (!pixelId) {
+        throw new Error("Please enter your Facebook Pixel ID")
+      }
+
+      // Save configuration
       const response = await fetch("/api/website/configure", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           pixelId,
-          accessToken: accessToken || null,
+          accessToken,
         }),
       })
 
       if (!response.ok) {
-        throw new Error(`Configuration failed: ${await response.text()}`)
+        const data = await response.json()
+        throw new Error(data.error || "Failed to save configuration")
       }
 
-      const result = await response.json()
-
-      if (!result.success) {
-        throw new Error(result.error || "Configuration failed")
-      }
-
-      // Generate the script after successful configuration
-      generateScript()
+      setIsConfigured(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Configuration failed")
+      setError(err instanceof Error ? err.message : "An unexpected error occurred")
     } finally {
-      setIsConfiguring(false)
-    }
-  }
-
-  const copyToClipboard = () => {
-    if (script) {
-      navigator.clipboard.writeText(script)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-md">
-      <h1 className="text-3xl font-bold text-center mb-8">Set Up For Any Website</h1>
-
-      <Card>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <Card className="w-full max-w-2xl">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5" />
-            Website Installation
-          </CardTitle>
-          <CardDescription>Generate a tracking script for any website</CardDescription>
+          <CardTitle>Set Up for Any Website</CardTitle>
+          <CardDescription>Add our tracking script to your website to start sending events</CardDescription>
         </CardHeader>
-
-        <CardContent className="space-y-4">
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertTitle>How it works</AlertTitle>
-            <AlertDescription>
-              This will generate a script that sends Facebook Pixel events through our gateway. Add it to your website's
-              &lt;head&gt; section.
-            </AlertDescription>
-          </Alert>
-
-          <div className="space-y-2">
-            <Label htmlFor="pixelId">Facebook Pixel ID</Label>
-            <Input
-              id="pixelId"
-              placeholder="123456789012345"
-              value={pixelId}
-              onChange={(e) => setPixelId(e.target.value)}
-              required
-            />
-            <p className="text-xs text-gray-500">Find this in your Facebook Business Manager under Events Manager</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="accessToken">
-              Facebook Access Token <span className="text-gray-500">(Optional)</span>
-            </Label>
-            <Input
-              id="accessToken"
-              placeholder="EAAG..."
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-            />
-            <p className="text-xs text-gray-500">
-              Optional: Provide an access token to enable server-side verification
-            </p>
-          </div>
-
+        <CardContent>
           {error && (
-            <Alert variant="destructive">
-              <AlertTitle>Error</AlertTitle>
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          {script && (
-            <div className="space-y-2">
-              <Label htmlFor="script">Tracking Script</Label>
-              <div className="relative">
-                <Textarea id="script" value={script} readOnly className="font-mono text-xs h-48" />
-                <Button size="sm" variant="ghost" className="absolute top-2 right-2" onClick={copyToClipboard}>
-                  {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500">Add this script to the &lt;head&gt; section of your website</p>
-            </div>
+          {isConfigured && (
+            <Alert className="mb-4 bg-green-50 border-green-200">
+              <Check className="h-4 w-4 text-green-500" />
+              <AlertDescription className="text-green-700">
+                Configuration saved successfully! Your pixel is now ready to use.
+              </AlertDescription>
+            </Alert>
           )}
-        </CardContent>
 
-        <CardFooter>
-          {!script ? (
-            <Button onClick={saveConfiguration} className="w-full" disabled={isConfiguring || isGenerating}>
-              {isConfiguring ? (
-                <>
-                  <span className="animate-spin mr-2">⟳</span>
-                  Configuring...
-                </>
-              ) : (
-                "Generate Tracking Script"
-              )}
-            </Button>
-          ) : (
-            <Button onClick={copyToClipboard} className="w-full" variant={copied ? "outline" : "default"}>
-              {copied ? (
-                <>
-                  <CheckCircle className="mr-2 h-4 w-4" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-2 h-4 w-4" />
-                  Copy to Clipboard
-                </>
-              )}
-            </Button>
-          )}
+          <Tabs defaultValue="setup">
+            <TabsList className="mb-4">
+              <TabsTrigger value="setup">1. Configure</TabsTrigger>
+              <TabsTrigger value="install">2. Install Script</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="setup" className="space-y-4">
+              <div>
+                <label htmlFor="pixelId" className="block text-sm font-medium text-gray-700 mb-1">
+                  Facebook Pixel ID
+                </label>
+                <Input
+                  id="pixelId"
+                  placeholder="123456789012345"
+                  value={pixelId}
+                  onChange={(e) => setPixelId(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter your Facebook Pixel ID. You can find this in your Facebook Events Manager.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="accessToken" className="block text-sm font-medium text-gray-700 mb-1">
+                  Facebook Access Token (Optional)
+                </label>
+                <Input
+                  id="accessToken"
+                  placeholder="EAAxxxxx..."
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  type="password"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter your Facebook Access Token for server-side events. You can add this later.
+                </p>
+              </div>
+
+              <Button onClick={saveConfiguration} disabled={isLoading} className="w-full">
+                {isLoading ? "Saving..." : "Save Configuration"}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="install">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Add this script to your website
+                  </label>
+                  <div className="relative">
+                    <Textarea value={generateScript()} readOnly className="font-mono text-xs h-48 bg-gray-50" />
+                    <Button size="sm" variant="ghost" className="absolute top-2 right-2" onClick={copyToClipboard}>
+                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Add this script to the <code>&lt;head&gt;</code> section of your website.
+                  </p>
+                </div>
+
+                <div className="bg-amber-50 p-4 rounded-md border border-amber-200">
+                  <h3 className="text-sm font-medium text-amber-800 mb-2">Installation Instructions</h3>
+                  <ol className="text-xs text-amber-700 space-y-1 list-decimal pl-4">
+                    <li>Copy the script above</li>
+                    <li>
+                      Paste it in the <code>&lt;head&gt;</code> section of your website
+                    </li>
+                    <li>The script will automatically send events to our gateway</li>
+                    <li>For server-side events, make sure to add your Facebook Access Token in the configuration</li>
+                  </ol>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+        <CardFooter className="flex justify-between">
+          <Button variant="outline" onClick={() => window.history.back()}>
+            Back
+          </Button>
+          <Button onClick={copyToClipboard}>
+            {copied ? "Copied!" : "Copy Script"}
+            <Copy className="ml-2 h-4 w-4" />
+          </Button>
         </CardFooter>
       </Card>
-
-      <div className="mt-8 text-center">
-        <p className="text-sm text-gray-500">
-          Using Shopify?{" "}
-          <a href="/setup/shopify" className="text-blue-600 hover:underline">
-            Set up for Shopify
-          </a>
-        </p>
-      </div>
     </div>
   )
 }

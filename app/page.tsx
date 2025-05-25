@@ -1,7 +1,7 @@
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import Link from "next/link"
-import { ArrowRight, ShoppingBag, Globe, Zap, Lock, BarChart3, Settings } from "lucide-react"
+import { ShoppingBag, Globe, ArrowRight, Zap, Lock, BarChart3, Settings } from "lucide-react"
 
 export default function Home() {
   return (
