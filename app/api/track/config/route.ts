@@ -5,8 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, X-Forwarded-For, User-Agent, Origin, Referer",
-  "Access-Control-Max-Age": "86400",
-  "Cache-Control": "no-cache",
+  "Access-Control-Max-Age": "86400", // 24 hours
 }
 
 export async function POST(request: Request) {
@@ -50,7 +49,12 @@ export async function POST(request: Request) {
     const shopConfig = await executeWithRetry(async () => {
       return await prisma.shopConfig.findFirst({
         where: {
-          OR: [{ shopDomain: cleanShop }, { shopDomain: shop }, { shopDomain: { contains: cleanShop } }],
+          OR: [
+            { shopDomain: cleanShop },
+            { shopDomain: shop },
+            { shopDomain: { contains: cleanShop } },
+            { shopDomain: { contains: shop.split(".")[0] } }, // Match by store name part
+          ],
         },
         include: {
           pixelConfig: true, // Include related pixel configuration
@@ -60,6 +64,34 @@ export async function POST(request: Request) {
 
     if (!shopConfig) {
       console.log("❌ [Config API] No shop configuration found for:", cleanShop)
+
+      // If no shop config found, check if we have a default store domain in env
+      const defaultStoreDomain = process.env.SHOPIFY_STORE_DOMAIN
+      if (defaultStoreDomain) {
+        console.log("🔍 [Config API] Trying default store domain:", defaultStoreDomain)
+
+        const defaultShopConfig = await executeWithRetry(async () => {
+          return await prisma.shopConfig.findFirst({
+            where: { shopDomain: defaultStoreDomain },
+            include: { pixelConfig: true },
+          })
+        })
+
+        if (defaultShopConfig?.pixelConfig) {
+          console.log("✅ [Config API] Found configuration using default store domain")
+          return NextResponse.json(
+            {
+              success: true,
+              pixelId: defaultShopConfig.pixelConfig.pixelId,
+              gatewayEnabled: true,
+              source: "default_domain",
+              shop: defaultStoreDomain,
+              pixelName: defaultShopConfig.pixelConfig.name,
+            },
+            { headers: corsHeaders },
+          )
+        }
+      }
 
       return NextResponse.json(
         {
@@ -91,6 +123,24 @@ export async function POST(request: Request) {
 
     if (!pixelConfig) {
       console.log("❌ [Config API] No pixel configuration found for shop")
+
+      // If we have a test pixel ID in env, use that as fallback
+      const testPixelId = process.env.NEXT_PUBLIC_TEST_PIXEL_ID
+      if (testPixelId) {
+        console.log("⚠️ [Config API] Using test pixel ID from environment:", testPixelId)
+        return NextResponse.json(
+          {
+            success: true,
+            pixelId: testPixelId,
+            gatewayEnabled: true,
+            source: "env_fallback",
+            shop: cleanShop,
+            pixelName: "Test Pixel",
+          },
+          { headers: corsHeaders },
+        )
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -106,20 +156,6 @@ export async function POST(request: Request) {
       name: pixelConfig.name,
       hasAccessToken: !!pixelConfig.accessToken,
     })
-
-    // Validate that we have an access token for this pixel
-    if (!pixelConfig.accessToken) {
-      console.log("⚠️ [Config API] Pixel configuration missing access token")
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Pixel configuration is incomplete (missing access token)",
-          pixelId: pixelConfig.pixelId,
-          shop: cleanShop,
-        },
-        { status: 400, headers: corsHeaders },
-      )
-    }
 
     // Return the validated configuration
     const response = {
@@ -154,7 +190,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const shop = searchParams.get("shop")
 
+  console.log("📡 [Config API GET] Request received with shop:", shop)
+
   if (!shop) {
+    console.log("⚠️ [Config API GET] No shop parameter provided")
     return NextResponse.json(
       { success: false, error: "Shop parameter is required" },
       { status: 400, headers: corsHeaders },

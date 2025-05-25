@@ -2,148 +2,149 @@
 import { register } from "@shopify/web-pixels-extension"
 
 register(({ configuration, analytics, browser }) => {
+  // Debug logging for initialization
   console.log("🎯 [Web Pixel Gateway] Starting initialization...")
-  console.log("🔍 [Web Pixel Gateway] Configuration:", configuration)
-  console.log("🔍 [Web Pixel Gateway] Analytics:", analytics)
 
-  // Get the pixel ID from configuration
-  let pixelId = configuration.accountID || null
-  console.log("🎯 [Web Pixel Gateway] Pixel ID from configuration:", pixelId)
+  // Log available objects and their types for debugging
+  console.log("🔍 [Web Pixel Gateway] Available objects:", {
+    configuration: !!configuration,
+    analytics: !!analytics,
+    browser: !!browser,
+    browserKeys: browser ? Object.keys(browser) : [],
+  })
 
-  // Get the gateway URL from configuration or use default
+  // Define the gateway URL
   const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
+  const configUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track/config"
 
-  // Get current page URL for shop identification
+  // Safely get the current URL
   const getCurrentUrl = () => {
     try {
       if (browser && browser.url && browser.url.href) {
         return browser.url.href
       }
-      if (typeof window !== "undefined" && window.location) {
-        return window.location.href
-      }
       return "unknown"
     } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error getting current URL:", error)
+      console.error("💥 [Web Pixel Gateway] Error getting URL:", error)
       return "unknown"
     }
   }
 
-  // Get shop domain from URL
+  // Safely get the shop domain
   const getShopDomain = () => {
     try {
       const url = getCurrentUrl()
-      const urlObj = new URL(url)
-      return urlObj.hostname
-    } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error getting shop domain:", error)
-      if (typeof window !== "undefined" && window.location) {
-        return window.location.hostname
+      if (url !== "unknown") {
+        const urlObj = new URL(url)
+        return urlObj.hostname
       }
       return "unknown"
+    } catch (error) {
+      console.error("💥 [Web Pixel Gateway] Error getting shop domain:", error)
+      return "unknown"
+    }
+  }
+
+  // Safely get cookies
+  const getCookies = () => {
+    const cookies = { fbp: null, fbc: null }
+    try {
+      if (browser && browser.cookie) {
+        const cookieData = browser.cookie.get()
+        if (typeof cookieData === "string") {
+          const fbpMatch = cookieData.match(/_fbp=([^;]+)/)
+          if (fbpMatch) cookies.fbp = fbpMatch[1]
+
+          const fbcMatch = cookieData.match(/_fbc=([^;]+)/)
+          if (fbcMatch) cookies.fbc = fbcMatch[1]
+        }
+      }
+    } catch (e) {
+      console.log("🍪 [Web Pixel Gateway] Cookie reading not available:", e.message)
+    }
+    return cookies
+  }
+
+  // Get client info safely
+  const getClientInfo = () => {
+    try {
+      const url = getCurrentUrl()
+      return {
+        url: url,
+        timestamp: new Date().toISOString(),
+      }
+    } catch (e) {
+      console.error("💥 [Web Pixel Gateway] Error getting client info:", e)
+      return {
+        url: "unknown",
+        timestamp: new Date().toISOString(),
+      }
     }
   }
 
   // Initialize tracking
   const initializeTracking = async () => {
-    const shopDomain = getShopDomain()
-    console.log("🏪 [Web Pixel Gateway] Shop Domain:", shopDomain)
+    // Log configuration for debugging
+    console.log("🔧 [Web Pixel Gateway] Configuration object:", configuration)
+    console.log("🔧 [Web Pixel Gateway] Analytics object:", analytics)
+    console.log("🌐 [Web Pixel Gateway] Current URL:", getCurrentUrl())
 
-    // If no pixel ID in configuration, try to get from API
-    if (!pixelId) {
+    // Get shop domain
+    const shopDomain = getShopDomain()
+
+    // Try to get pixel ID from various sources
+    let pixelId = null
+
+    // 1. Try to get from configuration
+    if (configuration && configuration.accountID) {
+      pixelId = configuration.accountID
+      console.log("✅ [Web Pixel Gateway] Using pixel ID from configuration:", pixelId)
+    }
+
+    // 2. If no pixel ID yet, try to get from API
+    if (!pixelId && shopDomain !== "unknown") {
       try {
         console.log("🔍 [Web Pixel Gateway] Fetching pixel ID from API...")
-        const configUrl = `${gatewayUrl.replace("/track", "/track/config")}?shop=${shopDomain}`
-        console.log("🔗 [Web Pixel Gateway] Config URL:", configUrl)
 
-        const configResponse = await fetch(configUrl, {
+        // Use simple fetch with no-cors mode to avoid CORS issues
+        const response = await fetch(`${configUrl}?shop=${shopDomain}`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            Accept: "application/json",
           },
           mode: "cors",
         })
 
-        if (configResponse.ok) {
-          const config = await configResponse.json()
+        console.log("📡 [Web Pixel Gateway] API Response status:", response.status)
+
+        if (response.ok) {
+          const config = await response.json()
           console.log("🔍 [Web Pixel Gateway] API Response:", config)
 
           if (config.success && config.pixelId) {
-            console.log("✅ [Web Pixel Gateway] Got pixel ID from API:", config.pixelId)
             pixelId = config.pixelId
-          } else {
-            console.error("❌ [Web Pixel Gateway] API returned no pixel ID:", config)
+            console.log("✅ [Web Pixel Gateway] Got pixel ID from API:", pixelId)
           }
-        } else {
-          console.error("❌ [Web Pixel Gateway] Failed to fetch pixel config:", await configResponse.text())
         }
       } catch (error) {
         console.error("💥 [Web Pixel Gateway] Error fetching pixel config:", error)
       }
     }
 
-    // If still no pixel ID, use fallback
+    // 3. If still no pixel ID, use environment variable if available
     if (!pixelId) {
-      pixelId = "584928510540140" // Fallback to test pixel
-      console.log("⚠️ [Web Pixel Gateway] Using fallback pixel ID:", pixelId)
+      // Use environment variable if available (will be replaced at build time)
+      const envPixelId = process.env.NEXT_PUBLIC_TEST_PIXEL_ID
+      if (envPixelId) {
+        pixelId = envPixelId
+        console.log("⚠️ [Web Pixel Gateway] Using environment variable pixel ID:", pixelId)
+      }
     }
 
-    // Helper function to safely get cookies
-    const getCookies = () => {
-      const cookies = { fbp: null, fbc: null }
-      try {
-        if (browser && browser.cookie) {
-          const cookieData = browser.cookie.get()
-          let cookieString = ""
-
-          if (typeof cookieData === "string") {
-            cookieString = cookieData
-          } else if (cookieData && typeof cookieData === "object") {
-            cookieString = cookieData.value || cookieData.cookie || ""
-          }
-
-          if (cookieString && typeof cookieString === "string") {
-            const fbpMatch = cookieString.match(/_fbp=([^;]+)/)
-            if (fbpMatch) cookies.fbp = fbpMatch[1]
-
-            const fbcMatch = cookieString.match(/_fbc=([^;]+)/)
-            if (fbcMatch) cookies.fbc = fbcMatch[1]
-          }
-        }
-      } catch (e) {
-        console.log("🍪 [Web Pixel Gateway] Cookie reading not available:", e.message)
-      }
-      return cookies
-    }
-
-    // Helper function to get client information
-    const getClientInfo = () => {
-      try {
-        const url = getCurrentUrl()
-        let referrer = ""
-
-        if (browser && browser.document && browser.document.referrer) {
-          referrer = browser.document.referrer
-        }
-
-        return {
-          user_agent: browser?.navigator?.userAgent || "Unknown",
-          language: browser?.navigator?.language || "en",
-          url: url,
-          referrer: referrer,
-          timestamp: new Date().toISOString(),
-        }
-      } catch (e) {
-        console.error("💥 [Web Pixel Gateway] Error getting client info:", e)
-        return {
-          user_agent: "Unknown",
-          language: "en",
-          url: getCurrentUrl(),
-          referrer: "",
-          timestamp: new Date().toISOString(),
-        }
-      }
+    // If we still don't have a pixel ID, we can't proceed
+    if (!pixelId) {
+      console.error("❌ [Web Pixel Gateway] No pixel ID available, cannot initialize tracking")
+      return
     }
 
     // Helper function to send event to Meta Conversions API Gateway
@@ -152,52 +153,38 @@ register(({ configuration, analytics, browser }) => {
         const cookies = getCookies()
         const clientInfo = getClientInfo()
 
-        const userData = {
-          client_user_agent: clientInfo.user_agent,
-          fbp: cookies.fbp,
-          fbc: cookies.fbc,
-        }
-
-        if (shopifyEventData.customer) {
-          if (shopifyEventData.customer.email) userData.em = shopifyEventData.customer.email
-          if (shopifyEventData.customer.phone) userData.ph = shopifyEventData.customer.phone
-        }
-
         const eventData = {
           pixelId: pixelId,
           event_name: eventName,
           event_time: Math.floor(Date.now() / 1000),
           event_source_url: clientInfo.url,
           shop_domain: shopDomain,
-          user_data: userData,
+          user_data: {
+            client_user_agent: browser?.navigator?.userAgent || "Unknown",
+            fbp: cookies.fbp,
+            fbc: cookies.fbc,
+          },
           custom_data: {
             ...customData,
             shopify_source: true,
             client_info: clientInfo,
-            shopify_event_data: shopifyEventData,
           },
         }
 
-        console.log(`📤 [Web Pixel Gateway] Sending ${eventName} event:`, eventData)
+        console.log(`📤 [Web Pixel Gateway] Sending ${eventName} event to ${gatewayUrl}`)
 
-        if (typeof fetch !== "undefined") {
-          fetch(gatewayUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify(eventData),
-            keepalive: true, // Ensure the request completes even if the page unloads
-            mode: "no-cors", // Use no-cors mode to avoid CORS issues
-          })
-            .then(() => {
-              console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
-            })
-            .catch((error) => {
-              console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
-            })
-        }
+        // Use no-cors mode to avoid CORS issues
+        fetch(gatewayUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(eventData),
+          keepalive: true,
+          mode: "no-cors",
+        }).catch((error) => {
+          console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
+        })
       } catch (error) {
         console.error(`💥 [Web Pixel Gateway] Error sending ${eventName} event:`, error)
       }
@@ -216,10 +203,7 @@ register(({ configuration, analytics, browser }) => {
       payment_info_submitted: "AddPaymentInfo",
       checkout_address_info_submitted: "AddShippingInfo",
       checkout_shipping_info_submitted: "AddShippingInfo",
-      product_removed_from_cart: "RemoveFromCart",
     }
-
-    console.log("🎯 [Web Pixel Gateway] Setting up event listeners...")
 
     // Subscribe to all Shopify Customer Events
     analytics.subscribe("all_events", (event) => {
@@ -245,26 +229,10 @@ register(({ configuration, analytics, browser }) => {
               const product = data.productVariant
               customData = {
                 content_type: "product",
-                content_ids: [product.id?.toString() || product.sku || product.product?.id?.toString()],
+                content_ids: [product.id?.toString() || "unknown"],
                 content_name: product.title || product.product?.title || "Unknown Product",
-                content_category: product.product?.type || product.product?.vendor || "",
                 value: Number.parseFloat(product.price?.amount) || 0,
                 currency: product.price?.currencyCode || "USD",
-              }
-            }
-            break
-
-          case "product_added_to_cart":
-            if (data.cartLine) {
-              const cartLine = data.cartLine
-              const merchandise = cartLine.merchandise
-              customData = {
-                content_type: "product",
-                content_ids: [merchandise?.id?.toString() || merchandise?.sku || "unknown"],
-                content_name: merchandise?.title || merchandise?.product?.title || "Unknown Product",
-                value: Number.parseFloat(cartLine.cost?.totalAmount?.amount) || 0,
-                currency: cartLine.cost?.totalAmount?.currencyCode || "USD",
-                num_items: cartLine.quantity || 1,
               }
             }
             break
@@ -274,21 +242,12 @@ register(({ configuration, analytics, browser }) => {
               const checkout = data.checkout
               customData = {
                 content_type: "product",
-                content_ids:
-                  checkout.lineItems?.map((item) => item.variant?.id || item.variant?.sku || "unknown") || [],
                 value: Number.parseFloat(checkout.totalPrice?.amount) || 0,
                 currency: checkout.totalPrice?.currencyCode || "USD",
-                num_items: checkout.lineItems?.reduce((total, item) => total + (item.quantity || 1), 0) || 1,
                 order_id: checkout.order?.id || checkout.id,
               }
             }
             break
-
-          default:
-            customData = {
-              event_source: "shopify_web_pixel",
-              raw_event_name: name,
-            }
         }
 
         sendToGateway(fbEventName, customData, data)
@@ -299,19 +258,12 @@ register(({ configuration, analytics, browser }) => {
 
     // Send initial PageView event
     console.log("📄 [Web Pixel Gateway] Sending initial PageView event...")
-    try {
-      const clientInfo = getClientInfo()
-      sendToGateway("PageView", {
-        page_title: "Initial Load",
-        page_location: clientInfo.url,
-        page_path: "/",
-        initial_load: true,
-      })
-    } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Error sending initial PageView:", error)
-    }
+    sendToGateway("PageView", {
+      page_title: "Initial Load",
+      initial_load: true,
+    })
 
-    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized!`)
+    console.log(`🎉 [Web Pixel Gateway] Extension fully initialized with pixel ID: ${pixelId}`)
   }
 
   // Start initialization
