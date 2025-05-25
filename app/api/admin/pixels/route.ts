@@ -1,31 +1,33 @@
 import { NextResponse } from "next/server"
-import { getAllPixelConfigs, addPixelConfig, removePixelConfig, type PixelConfig } from "@/lib/pixel-tokens"
+import { prisma } from "@/lib/prisma"
 
 // Basic auth middleware function
 async function authenticate(request: Request) {
-  // In production, implement proper authentication
-  // This is a simple example using basic auth
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader || !authHeader.startsWith("Basic ")) {
     return false
   }
 
-  // Extract credentials
   const base64Credentials = authHeader.split(" ")[1]
   const credentials = Buffer.from(base64Credentials, "base64").toString("ascii")
   const [username, password] = credentials.split(":")
 
-  // Check against environment variables or use a hardcoded value for demo
   const validUsername = process.env.ADMIN_USERNAME || "admin"
   const validPassword = process.env.ADMIN_PASSWORD || "password"
 
   return username === validUsername && password === validPassword
 }
 
-// GET: Retrieve all pixel configurations
+// GET: Retrieve pixel configurations (for authentication testing and listing)
 export async function GET(request: Request) {
   try {
+    // Check authentication first
+    const isAuthenticated = await authenticate(request)
+    if (!isAuthenticated) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
     // Check if DATABASE_URL is available
     if (!process.env.DATABASE_URL) {
       return NextResponse.json(
@@ -37,49 +39,72 @@ export async function GET(request: Request) {
       )
     }
 
-    const configs = await getAllPixelConfigs()
+    // Get all pixel configurations
+    const pixels = await prisma.pixelConfig.findMany({
+      orderBy: { createdAt: "desc" },
+    })
 
-    // Mask the access tokens for security
-    const safeConfigs = configs.map((config) => ({
-      ...config,
-      accessToken:
-        config.accessToken.substring(0, 8) + "..." + config.accessToken.substring(config.accessToken.length - 4),
-    }))
-
-    return NextResponse.json({ success: true, pixels: safeConfigs })
+    return NextResponse.json({
+      success: true,
+      pixels,
+      message: "Authentication successful",
+    })
   } catch (error) {
     console.error("Error retrieving pixel configurations:", error)
     return NextResponse.json({ success: false, error: "Failed to retrieve pixel configurations" }, { status: 500 })
   }
 }
 
-// POST: Add a new pixel configuration
+// POST: Add new pixel configuration
 export async function POST(request: Request) {
   try {
-    // Authenticate request
+    // Check authentication
     const isAuthenticated = await authenticate(request)
     if (!isAuthenticated) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json()
+    // Check if DATABASE_URL is available
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database connection not configured. Please set the DATABASE_URL environment variable.",
+        },
+        { status: 500 },
+      )
+    }
+
+    const { name, clientId, pixelId, accessToken } = await request.json()
 
     // Validate required fields
-    if (!body.pixelId || !body.accessToken) {
+    if (!pixelId || !accessToken) {
       return NextResponse.json({ success: false, error: "Pixel ID and Access Token are required" }, { status: 400 })
     }
 
-    const pixelConfig: PixelConfig = {
-      pixelId: body.pixelId,
-      accessToken: body.accessToken,
-      name: body.name || undefined,
-      clientId: body.clientId || undefined,
+    // Check if pixel already exists
+    const existingPixel = await prisma.pixelConfig.findUnique({
+      where: { pixelId },
+    })
+
+    if (existingPixel) {
+      return NextResponse.json({ success: false, error: "Pixel ID already exists" }, { status: 400 })
     }
 
-    await addPixelConfig(pixelConfig)
+    // Create new pixel configuration
+    const newPixel = await prisma.pixelConfig.create({
+      data: {
+        id: `pixel_${Date.now()}`,
+        pixelId,
+        accessToken,
+        name: name || `Pixel ${pixelId}`,
+        clientId: clientId || null,
+      },
+    })
 
     return NextResponse.json({
       success: true,
+      pixel: newPixel,
       message: "Pixel configuration added successfully",
     })
   } catch (error) {
@@ -88,13 +113,24 @@ export async function POST(request: Request) {
   }
 }
 
-// DELETE: Remove a pixel configuration
+// DELETE: Remove pixel configuration
 export async function DELETE(request: Request) {
   try {
-    // Authenticate request
+    // Check authentication
     const isAuthenticated = await authenticate(request)
     if (!isAuthenticated) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Check if DATABASE_URL is available
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Database connection not configured. Please set the DATABASE_URL environment variable.",
+        },
+        { status: 500 },
+      )
     }
 
     const { searchParams } = new URL(request.url)
@@ -104,18 +140,17 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: "Pixel ID is required" }, { status: 400 })
     }
 
-    const removed = await removePixelConfig(pixelId)
-
-    if (!removed) {
-      return NextResponse.json({ success: false, error: "Pixel configuration not found" }, { status: 404 })
-    }
+    // Delete the pixel configuration
+    await prisma.pixelConfig.delete({
+      where: { pixelId },
+    })
 
     return NextResponse.json({
       success: true,
-      message: "Pixel configuration removed successfully",
+      message: "Pixel configuration deleted successfully",
     })
   } catch (error) {
-    console.error("Error removing pixel configuration:", error)
-    return NextResponse.json({ success: false, error: "Failed to remove pixel configuration" }, { status: 500 })
+    console.error("Error deleting pixel configuration:", error)
+    return NextResponse.json({ success: false, error: "Failed to delete pixel configuration" }, { status: 500 })
   }
 }

@@ -1,28 +1,35 @@
+import type { NextRequest } from "next/server"
+import crypto from "crypto"
+
 /**
- * Validates if a string is a valid Shopify shop domain
+ * Validates the HMAC signature from Shopify
  */
-export function isValidShop(shop: string): boolean {
-  // Remove protocol if present
-  const cleanShop = shop.replace(/^https?:\/\//, "")
+export function validateHmac(req: NextRequest): boolean {
+  // Get the query params from the request URL
+  const url = new URL(req.url)
+  const params = Object.fromEntries(url.searchParams.entries())
 
-  // Check if it's a myshopify.com domain
-  if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/.test(cleanShop)) {
-    return true
-  }
+  const hmac = params.hmac
+  delete params.hmac
 
-  // Check if it's a custom domain with at least one dot
-  if (cleanShop.includes(".") && !cleanShop.includes(" ")) {
-    return true
-  }
+  // Create the message to sign
+  const message = Object.entries(params)
+    .map(([key, value]) => `${key}=${value}`)
+    .sort()
+    .join("&")
 
-  return false
+  // Generate the HMAC signature
+  const generatedHash = crypto.createHmac("sha256", process.env.SHOPIFY_API_SECRET).update(message).digest("hex")
+
+  // Compare the generated hash with the provided HMAC
+  return generatedHash === hmac
 }
 
 /**
  * Generates a random nonce for OAuth
  */
-export function generateNonce(): string {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+export function generateNonce(length = 32): string {
+  return crypto.randomBytes(length).toString("hex")
 }
 
 /**
@@ -63,47 +70,47 @@ export function getAuthUrl(shop: string, nonce: string): string {
 }
 
 /**
- * Validates the HMAC signature from Shopify
+ * Exchanges the authorization code for an access token
  */
-export function validateHmac(request: Request): boolean {
-  try {
-    // In a real implementation, you would validate the HMAC here
-    // For now, we'll just return true
-    return true
-  } catch (error) {
-    console.error("HMAC validation error:", error)
-    return false
+export async function getAccessToken(shop: string, code: string): Promise<string> {
+  const url = `https://${shop}/admin/oauth/access_token`
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      client_id: process.env.SHOPIFY_API_KEY,
+      client_secret: process.env.SHOPIFY_API_SECRET,
+      code,
+    }),
+  })
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(`Failed to get access token: ${JSON.stringify(data)}`)
   }
+
+  return data.access_token
 }
 
 /**
- * Exchanges an authorization code for an access token
+ * Verifies that the shop parameter is a valid Shopify shop
  */
-export async function getAccessToken(shop: string, code: string): Promise<string | null> {
-  try {
-    const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        client_id: process.env.SHOPIFY_API_KEY,
-        client_secret: process.env.SHOPIFY_API_SECRET,
-        code,
-      }),
-    })
+export function isValidShop(shop: string): boolean {
+  // Clean the shop domain first
+  let cleanShop = shop.trim().toLowerCase()
 
-    if (!response.ok) {
-      console.error("Failed to get access token:", await response.text())
-      return null
-    }
+  // Remove protocol (http:// or https://)
+  cleanShop = cleanShop.replace(/^https?:\/\//, "")
 
-    const data = await response.json()
-    return data.access_token
-  } catch (error) {
-    console.error("Error getting access token:", error)
-    return null
-  }
+  // Remove trailing slash
+  cleanShop = cleanShop.replace(/\/$/, "")
+
+  const shopRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/
+  return shopRegex.test(cleanShop)
 }
 
 /**
@@ -139,6 +146,22 @@ export async function shopifyAdmin(shop: string) {
       }
 
       return result.data
+    },
+  }
+}
+
+/**
+ * Creates a Shopify Admin client factory
+ */
+export function shopifyAdminClient() {
+  return {
+    async query(query: string, variables?: any, shop?: string) {
+      if (!shop) {
+        throw new Error("Shop parameter required for shopifyAdminClient")
+      }
+
+      const client = await shopifyAdmin(shop)
+      return client.query(query, variables)
     },
   }
 }

@@ -1,76 +1,58 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server"
+import { getShopData } from "@/lib/db-auth"
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
-    const url = new URL(request.url)
-    const shop = url.searchParams.get("shop")
+    const { searchParams } = new URL(request.url)
+    const shop = searchParams.get("shop")
 
     if (!shop) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Shop parameter is required",
-        },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Shop parameter required" }, { status: 400 })
     }
 
-    // Clean shop domain
-    const cleanShop = shop
-      .replace(/^https?:\/\//, "")
-      .replace(/^www\./, "")
-      .replace(/\/$/, "")
-      .toLowerCase()
+    const shopData = await getShopData(shop)
 
-    // Check if shop exists in database
-    const shopConfig = await prisma.shopConfig.findUnique({
-      where: { shopDomain: cleanShop },
-      include: { pixelConfig: true },
-    })
-
-    if (!shopConfig) {
+    if (!shopData) {
       return NextResponse.json({
-        success: true,
-        shop_exists: false,
-        configured: false,
+        connected: false,
         message: "Shop not found in database",
       })
     }
 
-    // Check if shop has a pixel configuration
-    if (!shopConfig.pixelConfigId) {
+    // Test the access token by making a simple API call
+    try {
+      const response = await fetch(`https://${shop}/admin/api/2023-10/shop.json`, {
+        headers: {
+          "X-Shopify-Access-Token": shopData.accessToken,
+        },
+      })
+
+      if (response.ok) {
+        return NextResponse.json({
+          connected: true,
+          installed: shopData.installed,
+          message: "Connection is active",
+          shop: shopData.shop,
+        })
+      } else {
+        // Token might be invalid, mark as disconnected
+        return NextResponse.json({
+          connected: false,
+          installed: shopData.installed,
+          message: "Access token is invalid",
+          error: `API call failed with status ${response.status}`,
+        })
+      }
+    } catch (apiError) {
       return NextResponse.json({
-        success: true,
-        shop_exists: true,
-        configured: false,
-        message: "Shop is registered but pixel needs to be configured by admin",
-        shop: cleanShop,
-        pixelId: null,
-        pixelName: null,
+        connected: false,
+        installed: shopData.installed,
+        message: "Failed to verify connection",
+        error: apiError.message,
       })
     }
-
-    // Return shop and pixel configuration
-    return NextResponse.json({
-      success: true,
-      shop_exists: true,
-      configured: true,
-      message: "Shop is registered and pixel is configured",
-      shop: cleanShop,
-      pixelId: shopConfig.pixelConfig?.pixelId || null,
-      pixelName: shopConfig.pixelConfig?.name || null,
-      gatewayEnabled: shopConfig.gatewayEnabled,
-    })
   } catch (error) {
     console.error("Error checking connection status:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Error checking connection status",
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
