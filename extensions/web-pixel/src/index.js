@@ -3,6 +3,8 @@ import { register } from "@shopify/web-pixels-extension"
 
 register(({ configuration, analytics, browser }) => {
   console.log("🎯 [Web Pixel Gateway] Starting initialization...")
+  console.log("🔍 [Web Pixel Gateway] Configuration:", configuration)
+  console.log("🔍 [Web Pixel Gateway] Analytics:", analytics)
 
   // Enhanced function to detect existing Facebook Pixels on the website
   const detectExistingPixels = () => {
@@ -69,68 +71,75 @@ register(({ configuration, analytics, browser }) => {
     }
   }
 
+  // Get shop domain from URL
+  const getShopDomain = () => {
+    try {
+      const url = getCurrentUrl()
+      const urlObj = new URL(url)
+      return urlObj.hostname
+    } catch (error) {
+      console.error("💥 [Web Pixel Gateway] Error getting shop domain:", error)
+      if (typeof window !== "undefined" && window.location) {
+        return window.location.hostname
+      }
+      return "unknown"
+    }
+  }
+
   // Initialize with pixel detection and smart configuration
   const initializeWithDetection = async () => {
     const currentUrl = getCurrentUrl()
     const detectedPixels = detectExistingPixels()
+    const shopDomain = getShopDomain()
 
     console.log("🌐 [Web Pixel Gateway] Current URL:", currentUrl)
+    console.log("🏪 [Web Pixel Gateway] Shop Domain:", shopDomain)
     console.log("🎯 [Web Pixel Gateway] Detected pixels:", detectedPixels)
 
-    try {
-      const gatewayUrl = "https://v0-node-js-serverless-api-lake.vercel.app/api/track"
-      const detectionUrl = `${gatewayUrl.replace("/track", "/detect-pixel")}`
+    // First try to get pixel ID from configuration
+    let pixelId = configuration.accountID || null
+    console.log("🎯 [Web Pixel Gateway] Pixel ID from configuration:", pixelId)
 
-      console.log("🔍 [Web Pixel Gateway] Sending detection data to API...")
-
-      // Send detection data to our API - let the server determine the shop
-      const detectionResponse = await fetch(detectionUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          currentUrl: currentUrl,
-          detectedPixels: detectedPixels,
-          source: "web-pixel-runtime",
-          userAgent: browser?.navigator?.userAgent || "Unknown",
-        }),
-        mode: "cors",
-      })
-
-      console.log("🔍 [Web Pixel Gateway] Detection API Response status:", detectionResponse.status)
-
-      if (!detectionResponse.ok) {
-        throw new Error(`Detection failed: ${detectionResponse.status}`)
-      }
-
-      const detectionData = await detectionResponse.json()
-      console.log("✅ [Web Pixel Gateway] Detection result:", detectionData)
-
-      if (detectionData.success && detectionData.recommendedPixelId && detectionData.hasAccessToken) {
-        console.log("🎯 [Web Pixel Gateway] ✅ USING SMART DETECTION")
-        console.log("   🏪 Shop:", detectionData.shop)
-        console.log("   📍 Recommended Pixel:", detectionData.recommendedPixelId)
-        console.log("   🔍 Detection Status:", detectionData.configurationStatus)
-        console.log("   🎯 Match Status:", detectionData.matchStatus)
-
-        return initializeTracking(
-          detectionData.recommendedPixelId,
-          gatewayUrl,
-          true,
-          `smart-detection-${detectionData.matchStatus}`,
+    // If no pixel ID in configuration, try to get from API
+    if (!pixelId) {
+      try {
+        console.log("🔍 [Web Pixel Gateway] Fetching pixel ID from API...")
+        const configResponse = await fetch(
+          `https://v0-node-js-serverless-api-lake.vercel.app/api/track/config?shop=${shopDomain}`,
         )
-      } else {
-        console.error("❌ [Web Pixel Gateway] Smart detection failed:", detectionData)
-        console.error("❌ [Web Pixel Gateway] Shop needs proper configuration")
-        return
+
+        if (configResponse.ok) {
+          const config = await configResponse.json()
+          console.log("🔍 [Web Pixel Gateway] API Response:", config)
+
+          if (config.success && config.pixelId) {
+            console.log("✅ [Web Pixel Gateway] Got pixel ID from API:", config.pixelId)
+            pixelId = config.pixelId
+          } else {
+            console.error("❌ [Web Pixel Gateway] API returned no pixel ID:", config)
+          }
+        } else {
+          console.error("❌ [Web Pixel Gateway] Failed to fetch pixel config:", await configResponse.text())
+        }
+      } catch (error) {
+        console.error("💥 [Web Pixel Gateway] Error fetching pixel config:", error)
       }
-    } catch (error) {
-      console.error("💥 [Web Pixel Gateway] Detection API failed:", error)
-      console.error("❌ [Web Pixel Gateway] Cannot initialize without proper detection")
-      return
     }
+
+    // If still no pixel ID, try detected pixels
+    if (!pixelId && detectedPixels.length > 0) {
+      pixelId = detectedPixels[0]
+      console.log("🎯 [Web Pixel Gateway] Using detected pixel ID:", pixelId)
+    }
+
+    // If still no pixel ID, use fallback
+    if (!pixelId) {
+      pixelId = "584928510540140" // Fallback to test pixel
+      console.log("⚠️ [Web Pixel Gateway] Using fallback pixel ID:", pixelId)
+    }
+
+    // Initialize tracking with the pixel ID
+    initializeTracking(pixelId, "https://v0-node-js-serverless-api-lake.vercel.app/api/track", true, "auto-detection")
   }
 
   // Initialize tracking with the given pixel ID
@@ -202,6 +211,7 @@ register(({ configuration, analytics, browser }) => {
       try {
         const cookies = getCookies()
         const clientInfo = getClientInfo()
+        const shopDomain = getShopDomain()
 
         const userData = {
           client_user_agent: clientInfo.user_agent,
@@ -224,6 +234,7 @@ register(({ configuration, analytics, browser }) => {
             ...customData,
             shopify_source: true,
             config_source: source,
+            shop_domain: shopDomain,
             client_info: clientInfo,
             ...(debug && { shopify_event_data: shopifyEventData }),
           },
@@ -236,10 +247,18 @@ register(({ configuration, analytics, browser }) => {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(eventData),
-            mode: "no-cors",
+            keepalive: true, // Ensure the request completes even if the page unloads
           })
-            .then(() => {
-              console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
+            .then((response) => {
+              if (response.ok) {
+                console.log(`✅ [Web Pixel Gateway] Successfully sent ${eventName} event`)
+                return response.json()
+              } else {
+                throw new Error(`Gateway returned ${response.status}`)
+              }
+            })
+            .then((data) => {
+              console.log(`✅ [Web Pixel Gateway] Response data:`, data)
             })
             .catch((error) => {
               console.error(`❌ [Web Pixel Gateway] Failed to send ${eventName}:`, error)
@@ -273,6 +292,7 @@ register(({ configuration, analytics, browser }) => {
       try {
         const { name, data } = event
         console.log(`🔔 [Web Pixel Gateway] Received Shopify event: ${name}`)
+        console.log(`🔔 [Web Pixel Gateway] Event data:`, data)
 
         const fbEventName = eventMapping[name] || name
         let customData = {}
@@ -312,6 +332,21 @@ register(({ configuration, analytics, browser }) => {
                 value: Number.parseFloat(cartLine.cost?.totalAmount?.amount) || 0,
                 currency: cartLine.cost?.totalAmount?.currencyCode || "USD",
                 num_items: cartLine.quantity || 1,
+              }
+            }
+            break
+
+          case "checkout_completed":
+            if (data.checkout) {
+              const checkout = data.checkout
+              customData = {
+                content_type: "product",
+                content_ids:
+                  checkout.lineItems?.map((item) => item.variant?.id || item.variant?.sku || "unknown") || [],
+                value: Number.parseFloat(checkout.totalPrice?.amount) || 0,
+                currency: checkout.totalPrice?.currencyCode || "USD",
+                num_items: checkout.lineItems?.reduce((total, item) => total + (item.quantity || 1), 0) || 1,
+                order_id: checkout.order?.id || checkout.id,
               }
             }
             break

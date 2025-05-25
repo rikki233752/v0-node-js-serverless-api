@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink, Clock, Info } from "lucide-react"
+import { CheckCircle, AlertCircle, Loader2, Settings, ExternalLink, Clock, Info, Search } from "lucide-react"
 
 export default function CustomerSetup() {
   const [shop, setShop] = useState("")
@@ -24,6 +24,9 @@ export default function CustomerSetup() {
   const [testingEvents, setTestingEvents] = useState(false)
   const [configuring, setConfiguring] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
+  const [checkingPixel, setCheckingPixel] = useState(false)
+  const [pixelExists, setPixelExists] = useState(false)
+  const [pixelChecked, setPixelChecked] = useState(false)
 
   // Get shop from URL params or cookies
   useEffect(() => {
@@ -81,14 +84,64 @@ export default function CustomerSetup() {
     }
   }
 
+  const checkPixelExists = async () => {
+    if (!pixelId) {
+      setError("Please enter a Pixel ID to check")
+      return
+    }
+
+    setCheckingPixel(true)
+    setError(null)
+    setSuccess(null)
+    setPixelExists(false)
+    setPixelChecked(false)
+
+    try {
+      const response = await fetch(`/api/customer/check-pixel?pixelId=${pixelId}`)
+      const data = await response.json()
+
+      if (data.success) {
+        setPixelExists(data.exists)
+        setPixelChecked(true)
+        if (data.exists) {
+          setSuccess("Pixel ID found in our system! No access token needed.")
+        } else {
+          setMessage("Pixel ID not found. Please provide an access token to register it.")
+        }
+      } else {
+        setError(data.error || "Failed to check pixel")
+      }
+    } catch (err) {
+      console.error("Error checking pixel:", err)
+      setError("An error occurred while checking the pixel")
+    } finally {
+      setCheckingPixel(false)
+    }
+  }
+
   const handleConfigurePixel = async (e: React.FormEvent) => {
     e.preventDefault()
     setConfiguring(true)
     setError(null)
     setSuccess(null)
 
-    if (!pixelId || !accessToken) {
-      setError("Pixel ID and Access Token are required")
+    if (!pixelId) {
+      setError("Pixel ID is required")
+      setConfiguring(false)
+      return
+    }
+
+    // If pixel doesn't exist and no access token provided
+    if (!pixelExists && !accessToken && !pixelChecked) {
+      // Check if pixel exists first
+      await checkPixelExists()
+      setConfiguring(false)
+      return
+    }
+
+    // If pixel doesn't exist and still no access token
+    if (!pixelExists && !accessToken && pixelChecked) {
+      setError("Access Token is required for new pixels")
       setConfiguring(false)
       return
     }
@@ -100,8 +153,9 @@ export default function CustomerSetup() {
         body: JSON.stringify({
           shop,
           pixelId,
-          accessToken,
+          accessToken: accessToken || undefined, // Only send if provided
           pixelName: pixelName || `${shop} Pixel`,
+          linkOnly: pixelExists, // If pixel exists, just link it to the shop
         }),
       })
 
@@ -295,7 +349,7 @@ export default function CustomerSetup() {
                   <AlertDescription>
                     <strong>Configure your Facebook Pixel</strong>
                     <br />
-                    Enter your Facebook Pixel ID and Access Token to start tracking events immediately.
+                    Enter your Facebook Pixel ID to start tracking events immediately.
                   </AlertDescription>
                 </Alert>
 
@@ -316,32 +370,49 @@ export default function CustomerSetup() {
                 <form onSubmit={handleConfigurePixel} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="pixelId">Facebook Pixel ID *</Label>
-                    <Input
-                      id="pixelId"
-                      value={pixelId}
-                      onChange={(e) => setPixelId(e.target.value)}
-                      placeholder="123456789012345"
-                      required
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="pixelId"
+                        value={pixelId}
+                        onChange={(e) => {
+                          setPixelId(e.target.value)
+                          setPixelChecked(false) // Reset when pixel ID changes
+                        }}
+                        placeholder="123456789012345"
+                        required
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={checkPixelExists}
+                        disabled={checkingPixel || !pixelId}
+                      >
+                        {checkingPixel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                        <span className="ml-2">Check</span>
+                      </Button>
+                    </div>
                     <p className="text-xs text-gray-500">
                       Find this in your Facebook Events Manager under Data Sources
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="accessToken">Facebook Access Token *</Label>
-                    <Input
-                      id="accessToken"
-                      type="password"
-                      value={accessToken}
-                      onChange={(e) => setAccessToken(e.target.value)}
-                      placeholder="EAABsbCc1234567890..."
-                      required
-                    />
-                    <p className="text-xs text-gray-500">
-                      Generate this in Facebook Business Settings under System Users
-                    </p>
-                  </div>
+                  {pixelChecked && !pixelExists && (
+                    <div className="space-y-2">
+                      <Label htmlFor="accessToken">Facebook Access Token *</Label>
+                      <Input
+                        id="accessToken"
+                        type="password"
+                        value={accessToken}
+                        onChange={(e) => setAccessToken(e.target.value)}
+                        placeholder="EAABsbCc1234567890..."
+                        required
+                      />
+                      <p className="text-xs text-gray-500">
+                        Generate this in Facebook Business Settings under System Users
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <Label htmlFor="pixelName">Pixel Name (Optional)</Label>

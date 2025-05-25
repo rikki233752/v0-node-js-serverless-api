@@ -10,14 +10,23 @@ const corsHeaders = {
 
 export async function POST(request: Request) {
   try {
-    const { shop, pixelId, accessToken, pixelName } = await request.json()
+    const { shop, pixelId, accessToken, pixelName, linkOnly } = await request.json()
 
     console.log("🎯 [Customer Setup] Setting up pixel for shop:", shop)
+    console.log("🎯 [Customer Setup] Link only mode:", linkOnly)
 
     // Validate required fields
-    if (!shop || !pixelId || !accessToken) {
+    if (!shop || !pixelId) {
       return NextResponse.json(
-        { success: false, error: "Shop, Pixel ID, and Access Token are required" },
+        { success: false, error: "Shop and Pixel ID are required" },
+        { status: 400, headers: corsHeaders },
+      )
+    }
+
+    // If not link-only mode, access token is required
+    if (!linkOnly && !accessToken) {
+      return NextResponse.json(
+        { success: false, error: "Access Token is required for new pixels" },
         { status: 400, headers: corsHeaders },
       )
     }
@@ -34,20 +43,44 @@ export async function POST(request: Request) {
       .replace(/\/$/, "")
       .toLowerCase()
 
-    // Create or update pixel configuration
-    const pixelConfig = await prisma.pixelConfig.upsert({
-      where: { pixelId: pixelId },
-      update: {
-        accessToken: accessToken,
-        name: pixelName || `${cleanShop} Pixel`,
-        updatedAt: new Date(),
-      },
-      create: {
-        pixelId: pixelId,
-        accessToken: accessToken,
-        name: pixelName || `${cleanShop} Pixel`,
-      },
+    // Check if pixel exists
+    let pixelConfig = await prisma.pixelConfig.findUnique({
+      where: { pixelId },
     })
+
+    if (pixelConfig) {
+      console.log("🎯 [Customer Setup] Pixel already exists, updating if needed")
+
+      // If we have an access token and the pixel doesn't have one, update it
+      if (accessToken && !pixelConfig.accessToken) {
+        pixelConfig = await prisma.pixelConfig.update({
+          where: { pixelId },
+          data: {
+            accessToken,
+            name: pixelName || pixelConfig.name || `${cleanShop} Pixel`,
+            updatedAt: new Date(),
+          },
+        })
+        console.log("🎯 [Customer Setup] Updated existing pixel with access token")
+      }
+    } else {
+      // Create new pixel configuration
+      if (!accessToken) {
+        return NextResponse.json(
+          { success: false, error: "Access Token is required for new pixels" },
+          { status: 400, headers: corsHeaders },
+        )
+      }
+
+      pixelConfig = await prisma.pixelConfig.create({
+        data: {
+          pixelId,
+          accessToken,
+          name: pixelName || `${cleanShop} Pixel`,
+        },
+      })
+      console.log("🎯 [Customer Setup] Created new pixel configuration")
+    }
 
     // Link shop to pixel configuration
     await prisma.shopConfig.update({
