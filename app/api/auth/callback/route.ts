@@ -34,10 +34,38 @@ function cleanShopDomain(shop: string): string {
     .trim()
 }
 
+// Check if page is password protected
+async function isPasswordProtected(page: puppeteer.Page): Promise<boolean> {
+  try {
+    // Check for common password protection elements
+    const passwordProtected = await page.evaluate(() => {
+      // Check for password form
+      const passwordForm =
+        document.querySelector('form[action*="password"]') || document.querySelector('input[name="password"]')
+
+      // Check for password text
+      const passwordText =
+        document.body.textContent?.includes("password protected") ||
+        document.body.textContent?.includes("Enter store password")
+
+      // Check for password in URL
+      const passwordUrl = window.location.pathname.includes("/password")
+
+      return !!passwordForm || !!passwordText || passwordUrl
+    })
+
+    return passwordProtected
+  } catch (error) {
+    console.error("Error checking for password protection:", error)
+    return false
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const shop = searchParams.get("shop")
+    const storePassword = searchParams.get("storePassword")
 
     // Validate shop parameter
     if (!shop) {
@@ -84,6 +112,7 @@ export async function GET(request: NextRequest) {
     })
 
     let pixelId: string | null = null
+    let isPasswordProtectedStore = false
 
     try {
       const page = await browser.newPage()
@@ -120,40 +149,87 @@ export async function GET(request: NextRequest) {
         timeout: navigationTimeout,
       })
 
-      // If no pixel found in network requests, try to extract from page content
-      if (!pixelId) {
-        console.log(`🔍 Checking page content for Facebook Pixel...`)
+      // Check if the store is password protected
+      isPasswordProtectedStore = await isPasswordProtected(page)
 
-        // Execute script in the page context to find pixel ID
-        pixelId = await page.evaluate(() => {
-          // Check for fbq('init', 'PIXEL_ID')
-          const fbqMatch = document.body.innerHTML.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i)
-          if (fbqMatch) return fbqMatch[1]
+      if (isPasswordProtectedStore) {
+        console.log(`🔒 Store is password protected: ${cleanShop}`)
 
-          // Check for meta pixel in script tags
-          const scripts = document.querySelectorAll("script")
-          for (const script of scripts) {
-            const content = script.textContent || script.innerText
-            if (!content) continue
+        // If we have a store password, try to enter it
+        if (storePassword) {
+          console.log(`🔑 Attempting to enter store password...`)
 
-            // Check for various patterns
-            const patterns = [
-              /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i,
-              /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/i,
-              /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/i,
-            ]
+          // Try to find and fill the password field
+          const passwordInputExists = await page.evaluate(() => {
+            const input = document.querySelector('input[name="password"]')
+            if (input) {
+              ;(input as HTMLInputElement).value = "${storePassword}"
+              return true
+            }
+            return false
+          })
 
-            for (const pattern of patterns) {
-              const match = content.match(pattern)
-              if (match && match[1]) return match[1]
+          if (passwordInputExists) {
+            // Try to submit the form
+            await page.evaluate(() => {
+              const form = document.querySelector('form[action*="password"]')
+              if (form) form.submit()
+            })
+
+            // Wait for navigation after form submission
+            await page.waitForNavigation({ timeout: navigationTimeout })
+
+            // Check if we're still on the password page
+            isPasswordProtectedStore = await isPasswordProtected(page)
+
+            if (!isPasswordProtectedStore) {
+              console.log(`✅ Successfully entered store password`)
+            } else {
+              console.log(`❌ Failed to enter store password - incorrect password`)
             }
           }
+        }
+      }
 
-          return null
-        })
+      // If store is still password protected, we can't proceed with detection
+      if (isPasswordProtectedStore) {
+        console.log(`🔒 Cannot detect pixel - store is password protected`)
+      } else {
+        // If no pixel found in network requests, try to extract from page content
+        if (!pixelId) {
+          console.log(`🔍 Checking page content for Facebook Pixel...`)
 
-        if (pixelId) {
-          console.log(`🎯 Found Facebook Pixel ID in page content: ${pixelId}`)
+          // Execute script in the page context to find pixel ID
+          pixelId = await page.evaluate(() => {
+            // Check for fbq('init', 'PIXEL_ID')
+            const fbqMatch = document.body.innerHTML.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i)
+            if (fbqMatch) return fbqMatch[1]
+
+            // Check for meta pixel in script tags
+            const scripts = document.querySelectorAll("script")
+            for (const script of scripts) {
+              const content = script.textContent || script.innerText
+              if (!content) continue
+
+              // Check for various patterns
+              const patterns = [
+                /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i,
+                /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/i,
+                /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/i,
+              ]
+
+              for (const pattern of patterns) {
+                const match = content.match(pattern)
+                if (match && match[1]) return match[1]
+              }
+            }
+
+            return null
+          })
+
+          if (pixelId) {
+            console.log(`🎯 Found Facebook Pixel ID in page content: ${pixelId}`)
+          }
         }
       }
     } finally {
@@ -227,6 +303,10 @@ export async function GET(request: NextRequest) {
         shop: cleanShop,
         pixelId: null,
         configurationStatus: "shop_exists_no_pixel",
+        passwordProtected: isPasswordProtectedStore,
+        message: isPasswordProtectedStore
+          ? "Store is password protected. Please provide the store password or manually configure the pixel ID."
+          : "No Facebook Pixel ID found for this store.",
       })
     }
   } catch (error) {
