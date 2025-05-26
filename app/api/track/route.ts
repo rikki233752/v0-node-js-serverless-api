@@ -16,6 +16,61 @@ const corsHeaders = {
 // Default domain for event_source_url if not provided
 const DEFAULT_DOMAIN = "https://yourdomain.com"
 
+// Get the correct pixel ID for a shop
+async function getPixelIdForShop(shopDomain: string | null): Promise<string | null> {
+  if (!shopDomain) {
+    console.log(`⚠️ [Track API] No shop domain provided, cannot get pixel ID`)
+    return null
+  }
+
+  try {
+    // Clean the shop domain
+    const cleanShopDomain = shopDomain
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .replace(/\/$/, "")
+      .toLowerCase()
+
+    console.log(`🔍 [Track API] Looking up pixel ID for shop: ${cleanShopDomain}`)
+
+    // Find the shop config
+    const shopConfig = await prisma.shopConfig.findUnique({
+      where: { shopDomain: cleanShopDomain },
+      include: { pixelConfig: true },
+    })
+
+    if (shopConfig?.pixelConfig?.pixelId) {
+      console.log(`✅ [Track API] Found configured pixel ID: ${shopConfig.pixelConfig.pixelId}`)
+      return shopConfig.pixelConfig.pixelId
+    }
+
+    console.log(`⚠️ [Track API] No pixel configuration found for shop: ${cleanShopDomain}`)
+    return null
+  } catch (error) {
+    console.error(`❌ [Track API] Error looking up pixel ID:`, error)
+    return null
+  }
+}
+
+// Get access token for a pixel ID
+async function getAccessTokenForPixel(pixelId: string): Promise<string | null> {
+  try {
+    const pixelConfig = await prisma.pixelConfig.findUnique({
+      where: { pixelId },
+    })
+
+    if (pixelConfig?.accessToken) {
+      return pixelConfig.accessToken
+    }
+
+    console.log(`⚠️ [Track API] No access token found for pixel ID: ${pixelId}`)
+    return null
+  } catch (error) {
+    console.error(`❌ [Track API] Error getting access token:`, error)
+    return null
+  }
+}
+
 async function sendToFacebookConversionsAPI(
   pixelId: string,
   event_name: string,
@@ -131,27 +186,57 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    const { pixelId, event_name, event_time = Math.floor(Date.now() / 1000), user_data = {}, custom_data = {} } = body
+    const {
+      pixelId: sentPixelId,
+      event_name,
+      event_time = Math.floor(Date.now() / 1000),
+      user_data = {},
+      custom_data = {},
+      shop_domain = null,
+    } = body
 
-    console.log(`📥 [Track API] Received ${event_name} event for pixel ${pixelId}`)
+    console.log(`📥 [Track API] Received ${event_name} event with shop domain: ${shop_domain || "unknown"}`)
 
     // Validate required fields
-    if (!pixelId || !event_name) {
+    if (!event_name) {
       return NextResponse.json(
-        { success: false, error: "pixelId and event_name are required" },
+        { success: false, error: "event_name is required" },
         { status: 400, headers: corsHeaders },
       )
     }
 
-    // Validate pixel exists
-    const pixelConfig = await prisma.pixelConfig.findUnique({
-      where: { pixelId },
-    })
+    // Get the correct pixel ID for this shop
+    const pixelId = await getPixelIdForShop(shop_domain)
 
-    if (!pixelConfig) {
-      console.error(`❌ [Track API] Unknown pixel ID: ${pixelId}`)
-      return NextResponse.json({ success: false, error: "Invalid pixel ID" }, { status: 400, headers: corsHeaders })
+    if (!pixelId) {
+      console.error(`❌ [Track API] No pixel ID found for shop: ${shop_domain}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No pixel configuration found for this shop",
+          shop_domain,
+        },
+        { status: 400, headers: corsHeaders },
+      )
     }
+
+    // Get the access token for this pixel
+    const accessToken = await getAccessTokenForPixel(pixelId)
+
+    if (!accessToken) {
+      console.error(`❌ [Track API] No access token found for pixel ID: ${pixelId}`)
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No access token found for this pixel ID",
+          pixelId,
+        },
+        { status: 400, headers: corsHeaders },
+      )
+    }
+
+    // Generate event ID
+    const event_id = crypto.randomUUID()
 
     // Log the event
     const eventLog = await prisma.eventLog.create({
@@ -159,54 +244,50 @@ export async function POST(request: NextRequest) {
         pixelId,
         eventName: event_name,
         status: "received",
-        payload: JSON.stringify({ user_data, custom_data }),
+        payload: JSON.stringify({
+          user_data,
+          custom_data,
+          shop_domain,
+          resolved_pixel_id: pixelId,
+        }),
       },
     })
 
-    console.log(`📝 [Track API] Logged event ${eventLog.id}`)
+    console.log(`📝 [Track API] Logged event ${eventLog.id} with resolved pixel ID: ${pixelId}`)
 
     // Hash user data
     const hashedUserData = hashUserData(user_data)
 
-    // Prepare Facebook Conversions API payload
-    const fbPayload = {
-      data: [
-        {
-          event_name,
-          event_time,
-          event_source_url: custom_data.event_source_url || "https://unknown.com",
-          action_source: "website",
-          user_data: hashedUserData,
-          custom_data: {
-            value: custom_data.value,
-            currency: custom_data.currency || "USD",
-            content_ids: custom_data.content_ids,
-            content_type: custom_data.content_type,
-            content_name: custom_data.content_name,
-            content_category: custom_data.content_category,
-            num_items: custom_data.num_items,
-          },
-        },
-      ],
-    }
-
-    // Forward to Facebook Conversions API
-    const fbResponse = await fetch(
-      `https://graph.facebook.com/v18.0/${pixelId}/events?access_token=${pixelConfig.accessToken}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fbPayload),
-      },
+    // Send to Facebook Conversions API
+    const result = await sendToFacebookConversionsAPI(
+      pixelId,
+      event_name,
+      event_time,
+      hashedUserData,
+      custom_data,
+      null, // test_event_code
+      accessToken,
+      event_id,
+      custom_data.event_source_url || DEFAULT_DOMAIN,
     )
 
     // Update event log status
     await prisma.eventLog.update({
       where: { id: eventLog.id },
-      data: { status: "processed" },
+      data: { status: result.success ? "processed" : "error" },
     })
 
-    return NextResponse.json({ success: true, eventId: eventLog.id }, { headers: corsHeaders })
+    return NextResponse.json(
+      {
+        success: result.success,
+        eventId: eventLog.id,
+        pixelId,
+        shopDomain: shop_domain,
+        meta_response: result.success ? result.meta_response : null,
+        error: !result.success ? result.error : null,
+      },
+      { headers: corsHeaders },
+    )
   } catch (error) {
     console.error("💥 [Track API] Error:", error)
     return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500, headers: corsHeaders })
