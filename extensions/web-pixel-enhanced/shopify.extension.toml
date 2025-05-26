@@ -1,0 +1,18 @@
+type = "web_pixel_extension"
+name = "Web Pixel Enhanced"
+
+runtime_context = "strict"
+
+[capabilities]
+network_access = true
+api_access = true
+
+[[metafields]]
+namespace = "facebook-pixel"
+key = "pixel_id"
+
+[settings]
+  [settings.pixel_id]
+  type = "string"
+  name = "Facebook Pixel ID"
+  description = "Enter your Facebook Pixel ID"
