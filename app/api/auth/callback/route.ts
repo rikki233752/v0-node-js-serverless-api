@@ -1,99 +1,43 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
+import puppeteer from "puppeteer-core"
+import chromium from "@sparticuz/chromium"
 
-// Helper function to extract Facebook Pixel ID from HTML
-function extractFacebookPixelId(html: string): string | null {
-  // Define all regex patterns to search for Facebook Pixel ID
-  const patterns = [
-    // fbq('init', 'PIXEL_ID')
-    /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/gi,
+// Helper function to extract Facebook Pixel ID from URL
+function extractPixelIdFromUrl(url: string): string | null {
+  // Match facebook.com/tr?id=PIXEL_ID or similar patterns
+  const pixelIdRegex = /facebook\.com\/tr\?id=(\d{15,16})/i
+  const match = url.match(pixelIdRegex)
 
-    // facebook.net/tr?id=PIXEL_ID
-    /facebook\.net\/tr\?id=(\d{15,16})/gi,
-
-    // facebook.net/.*?id=PIXEL_ID (more general pattern)
-    /facebook\.net\/[^?]*\?[^#]*id=(\d{15,16})/gi,
-
-    // <meta name="meta-pixel" content="PIXEL_ID">
-    /<meta[^>]+name=["']?meta-pixel["']?[^>]+content=["']?(\d{15,16})["']?/gi,
-
-    // data-pixel-id="PIXEL_ID"
-    /data-pixel-id=["']?(\d{15,16})["']?/gi,
-
-    // "facebook_pixel_id": "PIXEL_ID"
-    /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/gi,
-
-    // shopify.analytics.meta_pixel_id = "PIXEL_ID"
-    /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/gi,
-
-    // gtm: "PIXEL_ID" (in various contexts)
-    /gtm[^"']*["']?\s*:\s*["']?(\d{15,16})["']?/gi,
-  ]
-
-  // Try each pattern and return the first match found
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0 // Reset regex state
-    const match = pattern.exec(html)
-    if (match && match[1]) {
-      console.log(`✅ Found Pixel ID using pattern: ${pattern.source}`)
-      return match[1]
-    }
+  if (match && match[1]) {
+    return match[1]
   }
 
-  // If no match found, try a more general pattern for any 15-16 digit number that looks like a pixel ID
-  const generalPattern = /(?:pixel[_-]?id|fbq|facebook)[^0-9]*(\d{15,16})/gi
-  const generalMatch = generalPattern.exec(html)
-  if (generalMatch && generalMatch[1]) {
-    console.log(`✅ Found Pixel ID using general pattern`)
-    return generalMatch[1]
+  // Try alternative pattern with id as a parameter anywhere in the URL
+  const altPixelIdRegex = /[?&]id=(\d{15,16})/i
+  const altMatch = url.match(altPixelIdRegex)
+
+  if (altMatch && altMatch[1]) {
+    return altMatch[1]
   }
 
   return null
 }
 
-// Check if store is password protected
-function isPasswordProtected(html: string): boolean {
-  const passwordPatterns = [
-    /<form[^>]*password/i,
-    /store.password-page/i,
-    /password-required/i,
-    /password-template/i,
-    /password protection/i,
-    /This store is password protected/i,
-  ]
-
-  return passwordPatterns.some((pattern) => pattern.test(html))
-}
-
-// Try to fetch from admin API if available
-async function tryAdminApiFetch(shop: string, accessToken?: string): Promise<string | null> {
-  if (!accessToken) {
-    console.log("⚠️ No access token available for admin API fetch")
-    return null
-  }
-
-  try {
-    console.log(`🔍 Attempting to fetch pixel ID via Admin API for ${shop}`)
-    // This is a placeholder - implement actual Admin API call based on your setup
-    // const response = await fetch(`https://${shop}/admin/api/2023-07/shop.json`, {
-    //   headers: {
-    //     'X-Shopify-Access-Token': accessToken
-    //   }
-    // })
-    // const data = await response.json()
-    // Look for pixel ID in shop metadata or preferences
-    return null // Replace with actual implementation
-  } catch (error) {
-    console.error("❌ Admin API fetch failed:", error)
-    return null
-  }
+// Clean and normalize shop domain
+function cleanShopDomain(shop: string): string {
+  return shop
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "")
+    .toLowerCase()
+    .trim()
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const shop = searchParams.get("shop")
-    const accessToken = searchParams.get("accessToken") || undefined
 
     // Validate shop parameter
     if (!shop) {
@@ -103,165 +47,177 @@ export async function GET(request: NextRequest) {
     console.log(`🔐 Processing callback for shop: ${shop}`)
 
     // Clean and normalize the shop domain
-    const cleanShop = shop
-      .replace(/^https?:\/\//, "")
-      .replace(/^www\./, "")
-      .replace(/\/$/, "")
-      .toLowerCase()
-      .trim()
+    const cleanShop = cleanShopDomain(shop)
 
     // Validate shop domain format
     if (!cleanShop.includes(".myshopify.com") && !cleanShop.includes(".")) {
       return NextResponse.json({ success: false, error: "Invalid shop domain format" }, { status: 400 })
     }
 
-    try {
-      // Fetch the storefront HTML
-      console.log(`🔍 Fetching storefront HTML from https://${cleanShop}`)
+    // Check if shop is already configured with a pixel
+    const existingShopConfig = await prisma.shopConfig.findUnique({
+      where: { shopDomain: cleanShop },
+      include: { pixelConfig: true },
+    })
 
-      const response = await fetch(`https://${cleanShop}`, {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          "Cache-Control": "no-cache",
-        },
+    // If shop already has a pixel configuration and gateway is enabled, return early
+    if (existingShopConfig?.pixelConfigId && existingShopConfig.gatewayEnabled) {
+      console.log(`✅ Shop ${cleanShop} already configured with Pixel ID ${existingShopConfig.pixelConfig?.pixelId}`)
+
+      return NextResponse.json({
+        success: true,
+        shop: cleanShop,
+        pixelId: existingShopConfig.pixelConfig?.pixelId,
+        configurationStatus: "already-linked",
+      })
+    }
+
+    console.log(`🔍 Launching Puppeteer to detect Facebook Pixel for ${cleanShop}...`)
+
+    // Set up Puppeteer with Chrome AWS Lambda for serverless environments
+    const browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+      ignoreHTTPSErrors: true,
+    })
+
+    let pixelId: string | null = null
+
+    try {
+      const page = await browser.newPage()
+
+      // Set up request interception to monitor network requests
+      await page.setRequestInterception(true)
+
+      // Monitor network requests for Facebook Pixel
+      page.on("request", (request) => {
+        const url = request.url()
+
+        // Check if this is a Facebook Pixel request
+        if (url.includes("facebook.com/tr") || url.includes("facebook.net")) {
+          console.log(`🔍 Detected potential Facebook request: ${url}`)
+
+          const detectedPixelId = extractPixelIdFromUrl(url)
+          if (detectedPixelId) {
+            console.log(`🎯 Found Facebook Pixel ID: ${detectedPixelId}`)
+            pixelId = detectedPixelId
+          }
+        }
+
+        // Continue the request
+        request.continue()
       })
 
-      if (!response.ok) {
-        console.error(`❌ Failed to fetch storefront: ${response.status} ${response.statusText}`)
-        throw new Error(`Failed to fetch storefront: ${response.status}`)
-      }
+      // Set a timeout for the navigation
+      const navigationTimeout = 15000 // 15 seconds
 
-      const html = await response.text()
-      console.log(`📄 Fetched ${html.length} characters of HTML`)
+      // Navigate to the shop
+      console.log(`🌐 Navigating to https://${cleanShop}...`)
+      await page.goto(`https://${cleanShop}`, {
+        waitUntil: "networkidle2",
+        timeout: navigationTimeout,
+      })
 
-      // Check if store is password protected
-      const passwordProtected = isPasswordProtected(html)
-      if (passwordProtected) {
-        console.log(`🔒 Store is password protected: ${cleanShop}`)
+      // If no pixel found in network requests, try to extract from page content
+      if (!pixelId) {
+        console.log(`🔍 Checking page content for Facebook Pixel...`)
 
-        // Try admin API if we have access token
-        const adminPixelId = await tryAdminApiFetch(cleanShop, accessToken)
-        if (adminPixelId) {
-          console.log(`🎯 Found Facebook Pixel ID via Admin API: ${adminPixelId}`)
-          // Process this pixel ID (same code as below)
-          // ...
+        // Execute script in the page context to find pixel ID
+        pixelId = await page.evaluate(() => {
+          // Check for fbq('init', 'PIXEL_ID')
+          const fbqMatch = document.body.innerHTML.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i)
+          if (fbqMatch) return fbqMatch[1]
 
-          return NextResponse.json({
-            success: true,
-            shop: cleanShop,
-            pixelId: adminPixelId,
-            configurationStatus: "linked",
-            note: "Pixel ID found via Admin API (store is password protected)",
-          })
+          // Check for meta pixel in script tags
+          const scripts = document.querySelectorAll("script")
+          for (const script of scripts) {
+            const content = script.textContent || script.innerText
+            if (!content) continue
+
+            // Check for various patterns
+            const patterns = [
+              /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i,
+              /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/i,
+              /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/i,
+            ]
+
+            for (const pattern of patterns) {
+              const match = content.match(pattern)
+              if (match && match[1]) return match[1]
+            }
+          }
+
+          return null
+        })
+
+        if (pixelId) {
+          console.log(`🎯 Found Facebook Pixel ID in page content: ${pixelId}`)
         }
-
-        // Create/update shop config without pixel
-        await prisma.shopConfig.upsert({
-          where: { shopDomain: cleanShop },
-          update: {
-            gatewayEnabled: false,
-          },
-          create: {
-            shopDomain: cleanShop,
-            gatewayEnabled: false,
-          },
-        })
-
-        return NextResponse.json({
-          success: true,
-          shop: cleanShop,
-          pixelId: null,
-          configurationStatus: "shop_exists_no_pixel",
-          passwordProtected: true,
-          message: "Store is password protected. Please provide pixel ID manually or remove password protection.",
-        })
       }
+    } finally {
+      // Always close the browser
+      await browser.close()
+      console.log(`🔒 Puppeteer browser closed`)
+    }
 
-      // Extract Facebook Pixel ID
-      const pixelId = extractFacebookPixelId(html)
+    // Process the result
+    if (pixelId) {
+      console.log(`✅ Successfully detected Pixel ID ${pixelId} for shop ${cleanShop}`)
 
-      if (pixelId) {
-        console.log(`🎯 Found Facebook Pixel ID: ${pixelId}`)
+      // Check if PixelConfig already exists
+      let pixelConfig = await prisma.pixelConfig.findUnique({
+        where: { pixelId },
+      })
 
-        // Check if PixelConfig already exists
-        let pixelConfig = await prisma.pixelConfig.findUnique({
-          where: { pixelId },
-        })
-
-        // If pixel doesn't exist, create it
-        if (!pixelConfig) {
-          console.log(`📝 Creating new PixelConfig for Pixel ID: ${pixelId}`)
-          pixelConfig = await prisma.pixelConfig.create({
-            data: {
-              pixelId,
-              accessToken: "PENDING_CONFIGURATION",
-              name: `Auto-detected pixel for ${cleanShop}`,
-            },
-          })
-        } else {
-          console.log(`📋 Using existing PixelConfig for Pixel ID: ${pixelId}`)
-        }
-
-        // Upsert ShopConfig with pixel configuration
-        const shopConfig = await prisma.shopConfig.upsert({
-          where: { shopDomain: cleanShop },
-          update: {
-            pixelConfigId: pixelConfig.id,
-            gatewayEnabled: true,
+      // If pixel doesn't exist, create it
+      if (!pixelConfig) {
+        console.log(`📝 Creating new PixelConfig for Pixel ID: ${pixelId}`)
+        pixelConfig = await prisma.pixelConfig.create({
+          data: {
+            pixelId,
+            accessToken: "PENDING_CONFIGURATION",
+            name: `Auto-detected pixel for ${cleanShop}`,
           },
-          create: {
-            shopDomain: cleanShop,
-            pixelConfigId: pixelConfig.id,
-            gatewayEnabled: true,
-          },
-        })
-
-        console.log(`✅ Successfully linked shop ${cleanShop} to Pixel ID ${pixelId}`)
-
-        return NextResponse.json({
-          success: true,
-          shop: cleanShop,
-          pixelId,
-          configurationStatus: "linked",
         })
       } else {
-        console.log(`⚠️ No Facebook Pixel ID found for shop ${cleanShop}`)
-
-        // Upsert ShopConfig without pixel configuration
-        await prisma.shopConfig.upsert({
-          where: { shopDomain: cleanShop },
-          update: {
-            pixelConfigId: null,
-            gatewayEnabled: false,
-          },
-          create: {
-            shopDomain: cleanShop,
-            pixelConfigId: null,
-            gatewayEnabled: false,
-          },
-        })
-
-        return NextResponse.json({
-          success: true,
-          shop: cleanShop,
-          pixelId: null,
-          configurationStatus: "shop_exists_no_pixel",
-        })
+        console.log(`📋 Using existing PixelConfig for Pixel ID: ${pixelId}`)
       }
-    } catch (fetchError) {
-      console.error(`💥 Error fetching storefront:`, fetchError)
 
-      // Still create/update shop config even if fetch fails
+      // Upsert ShopConfig with pixel configuration
       await prisma.shopConfig.upsert({
         where: { shopDomain: cleanShop },
         update: {
+          pixelConfigId: pixelConfig.id,
+          gatewayEnabled: true,
+        },
+        create: {
+          shopDomain: cleanShop,
+          pixelConfigId: pixelConfig.id,
+          gatewayEnabled: true,
+        },
+      })
+
+      return NextResponse.json({
+        success: true,
+        shop: cleanShop,
+        pixelId,
+        configurationStatus: "linked",
+      })
+    } else {
+      console.log(`⚠️ No Facebook Pixel ID found for shop ${cleanShop}`)
+
+      // Upsert ShopConfig without pixel configuration
+      await prisma.shopConfig.upsert({
+        where: { shopDomain: cleanShop },
+        update: {
+          pixelConfigId: null,
           gatewayEnabled: false,
         },
         create: {
           shopDomain: cleanShop,
+          pixelConfigId: null,
           gatewayEnabled: false,
         },
       })
@@ -271,7 +227,6 @@ export async function GET(request: NextRequest) {
         shop: cleanShop,
         pixelId: null,
         configurationStatus: "shop_exists_no_pixel",
-        error: fetchError instanceof Error ? fetchError.message : "Failed to fetch storefront",
       })
     }
   } catch (error) {
