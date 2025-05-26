@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/db"
 
+// CORS headers for cross-origin requests
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -14,51 +15,55 @@ export async function GET(request: NextRequest) {
 
     if (!shop) {
       return NextResponse.json(
-        { success: false, error: "Shop parameter is required" },
+        {
+          success: false,
+          error: "Shop parameter is required",
+        },
         { status: 400, headers: corsHeaders },
       )
     }
 
-    console.log(`🔍 [Config API] Getting pixel ID for shop: ${shop}`)
-
     // Clean the shop domain
-    const cleanShop = shop
+    const cleanShopDomain = shop
       .replace(/^https?:\/\//, "")
       .replace(/^www\./, "")
       .replace(/\/$/, "")
       .toLowerCase()
 
-    // Get shop config from database
+    console.log(`🔍 [Config API] Looking up pixel for shop: ${cleanShopDomain}`)
+
+    // Find the shop configuration with its linked pixel config
     const shopConfig = await prisma.shopConfig.findUnique({
-      where: { shopDomain: cleanShop },
-      include: { pixelConfig: true },
+      where: {
+        shopDomain: cleanShopDomain,
+      },
+      include: {
+        pixelConfig: true,
+      },
     })
 
-    if (!shopConfig) {
-      console.log(`❌ [Config API] Shop not registered: ${cleanShop}`)
-      return NextResponse.json({ success: false, error: "Shop not registered" }, { status: 404, headers: corsHeaders })
-    }
-
-    if (shopConfig.pixelConfig) {
-      console.log(`✅ [Config API] Found pixel ID for shop ${cleanShop}: ${shopConfig.pixelConfig.pixelId}`)
-
+    // If shop is configured with a pixel
+    if (shopConfig?.pixelConfig) {
+      console.log(`✅ [Config API] Found pixel ID ${shopConfig.pixelConfig.pixelId} for shop ${cleanShopDomain}`)
       return NextResponse.json(
         {
           success: true,
-          shop: cleanShop,
+          shop: cleanShopDomain,
           pixelId: shopConfig.pixelConfig.pixelId,
           accessToken: shopConfig.pixelConfig.accessToken,
           configurationStatus: "already-present",
         },
         { headers: corsHeaders },
       )
-    } else {
-      console.log(`⚠️ [Config API] Shop exists but no pixel configured: ${cleanShop}`)
+    }
 
+    // If shop exists but no pixel is configured
+    if (shopConfig) {
+      console.log(`⚠️ [Config API] Shop ${cleanShopDomain} exists but no pixel configured`)
       return NextResponse.json(
         {
           success: true,
-          shop: cleanShop,
+          shop: cleanShopDomain,
           pixelId: null,
           configurationStatus: "shop_exists_no_pixel",
           message: "Shop is registered but pixel needs to be configured by admin",
@@ -66,12 +71,30 @@ export async function GET(request: NextRequest) {
         { headers: corsHeaders },
       )
     }
+
+    // Shop not found at all
+    console.log(`❌ [Config API] Shop ${cleanShopDomain} not found in database`)
+    return NextResponse.json(
+      {
+        success: false,
+        shop: cleanShopDomain,
+        error: "Shop not registered",
+      },
+      { status: 404, headers: corsHeaders },
+    )
   } catch (error) {
     console.error("💥 [Config API] Error:", error)
-    return NextResponse.json({ success: false, error: "Internal server error" }, { status: 500, headers: corsHeaders })
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Internal server error",
+      },
+      { status: 500, headers: corsHeaders },
+    )
   }
 }
 
+// Handle OPTIONS requests for CORS preflight
 export async function OPTIONS(request: NextRequest) {
   return new Response(null, {
     headers: corsHeaders,
