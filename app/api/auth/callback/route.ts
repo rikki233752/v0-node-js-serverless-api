@@ -1,322 +1,147 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
-import puppeteer from "puppeteer-core"
-import chromium from "@sparticuz/chromium"
+import { validateHmac, getAccessToken } from "@/lib/shopify"
+import { storeShopData } from "@/lib/db-auth"
+import { activateWebPixel } from "@/lib/shopify-graphql"
 
-// Helper function to extract Facebook Pixel ID from URL
-function extractPixelIdFromUrl(url: string): string | null {
-  // Match facebook.com/tr?id=PIXEL_ID or similar patterns
-  const pixelIdRegex = /facebook\.com\/tr\?id=(\d{15,16})/i
-  const match = url.match(pixelIdRegex)
-
-  if (match && match[1]) {
-    return match[1]
-  }
-
-  // Try alternative pattern with id as a parameter anywhere in the URL
-  const altPixelIdRegex = /[?&]id=(\d{15,16})/i
-  const altMatch = url.match(altPixelIdRegex)
-
-  if (altMatch && altMatch[1]) {
-    return altMatch[1]
-  }
-
-  return null
-}
-
-// Clean and normalize shop domain
-function cleanShopDomain(shop: string): string {
-  return shop
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/\/$/, "")
-    .toLowerCase()
-    .trim()
-}
-
-// Check if page is password protected
-async function isPasswordProtected(page: puppeteer.Page): Promise<boolean> {
-  try {
-    // Check for common password protection elements
-    const passwordProtected = await page.evaluate(() => {
-      // Check for password form
-      const passwordForm =
-        document.querySelector('form[action*="password"]') || document.querySelector('input[name="password"]')
-
-      // Check for password text
-      const passwordText =
-        document.body.textContent?.includes("password protected") ||
-        document.body.textContent?.includes("Enter store password")
-
-      // Check for password in URL
-      const passwordUrl = window.location.pathname.includes("/password")
-
-      return !!passwordForm || !!passwordText || passwordUrl
-    })
-
-    return passwordProtected
-  } catch (error) {
-    console.error("Error checking for password protection:", error)
-    return false
-  }
-}
-
+// OAuth callback endpoint
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const shop = searchParams.get("shop")
-    const storePassword = searchParams.get("storePassword")
+    const url = new URL(request.url)
 
-    // Validate shop parameter
-    if (!shop) {
-      return NextResponse.json({ success: false, error: "Shop parameter is required" }, { status: 400 })
+    // Extract parameters
+    const shop = url.searchParams.get("shop")
+    const code = url.searchParams.get("code")
+    const state = url.searchParams.get("state")
+    const hmac = url.searchParams.get("hmac")
+
+    console.log("🔐 OAuth callback for shop:", shop)
+
+    // Basic validation
+    if (!shop || !code || !hmac) {
+      const missingParams = []
+      if (!shop) missingParams.push("shop")
+      if (!code) missingParams.push("code")
+      if (!hmac) missingParams.push("hmac")
+
+      console.error("❌ Missing critical parameters:", missingParams)
+      const errorUrl = new URL("/api/auth/error", request.url)
+      errorUrl.searchParams.set("error", `Missing critical parameters: ${missingParams.join(", ")}`)
+      return NextResponse.redirect(errorUrl)
     }
 
-    console.log(`🔐 Processing callback for shop: ${shop}`)
-
-    // Clean and normalize the shop domain
-    const cleanShop = cleanShopDomain(shop)
-
-    // Validate shop domain format
-    if (!cleanShop.includes(".myshopify.com") && !cleanShop.includes(".")) {
-      return NextResponse.json({ success: false, error: "Invalid shop domain format" }, { status: 400 })
+    // Verify HMAC signature from Shopify
+    if (!validateHmac(request)) {
+      console.error("❌ HMAC validation failed")
+      const errorUrl = new URL("/api/auth/error", request.url)
+      errorUrl.searchParams.set("error", "Invalid HMAC signature")
+      return NextResponse.redirect(errorUrl)
     }
 
-    // Check if shop is already configured with a pixel
-    const existingShopConfig = await prisma.shopConfig.findUnique({
-      where: { shopDomain: cleanShop },
-      include: { pixelConfig: true },
+    // Exchange authorization code for access token
+    console.log("🔄 Exchanging code for access token...")
+    const accessToken = await getAccessToken(shop, code)
+
+    if (!accessToken) {
+      throw new Error("Failed to obtain access token from Shopify")
+    }
+
+    console.log("✅ Access token received successfully")
+
+    // Store shop data in database
+    await storeShopData({
+      shop,
+      accessToken,
+      scopes: process.env.SHOPIFY_SCOPES || "read_pixels,write_pixels,read_customer_events",
+      installed: true,
     })
 
-    // If shop already has a pixel configuration and gateway is enabled, return early
-    if (existingShopConfig?.pixelConfigId && existingShopConfig.gatewayEnabled) {
-      console.log(`✅ Shop ${cleanShop} already configured with Pixel ID ${existingShopConfig.pixelConfig?.pixelId}`)
+    console.log("💾 Shop data stored successfully")
 
-      return NextResponse.json({
-        success: true,
-        shop: cleanShop,
-        pixelId: existingShopConfig.pixelConfig?.pixelId,
-        configurationStatus: "already-linked",
-      })
-    }
-
-    console.log(`🔍 Launching Puppeteer to detect Facebook Pixel for ${cleanShop}...`)
-
-    // Set up Puppeteer with Chrome AWS Lambda for serverless environments
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: true,
-      ignoreHTTPSErrors: true,
-    })
-
-    let pixelId: string | null = null
-    let isPasswordProtectedStore = false
+    // AUTOMATICALLY ACTIVATE WEB PIXEL
+    console.log("🎯 Starting automatic Web Pixel activation...")
+    let webPixelStatus = "not_attempted"
+    let webPixelError = null
+    let webPixelId = null
 
     try {
-      const page = await browser.newPage()
+      const webPixelResult = await activateWebPixel(shop, accessToken)
 
-      // Set up request interception to monitor network requests
-      await page.setRequestInterception(true)
-
-      // Monitor network requests for Facebook Pixel
-      page.on("request", (request) => {
-        const url = request.url()
-
-        // Check if this is a Facebook Pixel request
-        if (url.includes("facebook.com/tr") || url.includes("facebook.net")) {
-          console.log(`🔍 Detected potential Facebook request: ${url}`)
-
-          const detectedPixelId = extractPixelIdFromUrl(url)
-          if (detectedPixelId) {
-            console.log(`🎯 Found Facebook Pixel ID: ${detectedPixelId}`)
-            pixelId = detectedPixelId
-          }
-        }
-
-        // Continue the request
-        request.continue()
-      })
-
-      // Set a timeout for the navigation
-      const navigationTimeout = 15000 // 15 seconds
-
-      // Navigate to the shop
-      console.log(`🌐 Navigating to https://${cleanShop}...`)
-      await page.goto(`https://${cleanShop}`, {
-        waitUntil: "networkidle2",
-        timeout: navigationTimeout,
-      })
-
-      // Check if the store is password protected
-      isPasswordProtectedStore = await isPasswordProtected(page)
-
-      if (isPasswordProtectedStore) {
-        console.log(`🔒 Store is password protected: ${cleanShop}`)
-
-        // If we have a store password, try to enter it
-        if (storePassword) {
-          console.log(`🔑 Attempting to enter store password...`)
-
-          // Try to find and fill the password field
-          const passwordInputExists = await page.evaluate(() => {
-            const input = document.querySelector('input[name="password"]')
-            if (input) {
-              ;(input as HTMLInputElement).value = "${storePassword}"
-              return true
-            }
-            return false
-          })
-
-          if (passwordInputExists) {
-            // Try to submit the form
-            await page.evaluate(() => {
-              const form = document.querySelector('form[action*="password"]')
-              if (form) form.submit()
-            })
-
-            // Wait for navigation after form submission
-            await page.waitForNavigation({ timeout: navigationTimeout })
-
-            // Check if we're still on the password page
-            isPasswordProtectedStore = await isPasswordProtected(page)
-
-            if (!isPasswordProtectedStore) {
-              console.log(`✅ Successfully entered store password`)
-            } else {
-              console.log(`❌ Failed to enter store password - incorrect password`)
-            }
-          }
-        }
-      }
-
-      // If store is still password protected, we can't proceed with detection
-      if (isPasswordProtectedStore) {
-        console.log(`🔒 Cannot detect pixel - store is password protected`)
+      if (webPixelResult.success) {
+        console.log("🎉 Web Pixel activated successfully:", webPixelResult.webPixel?.id)
+        webPixelStatus = "success"
+        webPixelId = webPixelResult.webPixel?.id
       } else {
-        // If no pixel found in network requests, try to extract from page content
-        if (!pixelId) {
-          console.log(`🔍 Checking page content for Facebook Pixel...`)
-
-          // Execute script in the page context to find pixel ID
-          pixelId = await page.evaluate(() => {
-            // Check for fbq('init', 'PIXEL_ID')
-            const fbqMatch = document.body.innerHTML.match(/fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i)
-            if (fbqMatch) return fbqMatch[1]
-
-            // Check for meta pixel in script tags
-            const scripts = document.querySelectorAll("script")
-            for (const script of scripts) {
-              const content = script.textContent || script.innerText
-              if (!content) continue
-
-              // Check for various patterns
-              const patterns = [
-                /fbq\s*\(\s*['"]init['"]\s*,\s*['"](\d{15,16})['"]/i,
-                /"facebook_pixel_id"\s*:\s*["']?(\d{15,16})["']?/i,
-                /shopify\.analytics\.meta_pixel_id\s*=\s*["']?(\d{15,16})["']?/i,
-              ]
-
-              for (const pattern of patterns) {
-                const match = content.match(pattern)
-                if (match && match[1]) return match[1]
-              }
-            }
-
-            return null
-          })
-
-          if (pixelId) {
-            console.log(`🎯 Found Facebook Pixel ID in page content: ${pixelId}`)
-          }
-        }
+        console.error("❌ Web Pixel activation failed:", webPixelResult.error)
+        console.error("📋 Details:", webPixelResult.details)
+        console.error("🔍 User errors:", webPixelResult.userErrors)
+        webPixelStatus = "failed"
+        webPixelError = webPixelResult.error
       }
-    } finally {
-      // Always close the browser
-      await browser.close()
-      console.log(`🔒 Puppeteer browser closed`)
+    } catch (error) {
+      console.error("💥 Exception during Web Pixel activation:", error)
+      webPixelStatus = "error"
+      webPixelError = error instanceof Error ? error.message : "Unknown error"
     }
 
-    // Process the result
-    if (pixelId) {
-      console.log(`✅ Successfully detected Pixel ID ${pixelId} for shop ${cleanShop}`)
+    // After OAuth is complete, trigger pixel detection in the background
+    // We'll do this asynchronously so it doesn't block the redirect
+    setTimeout(async () => {
+      try {
+        console.log("🔍 Starting background pixel detection for shop:", shop)
+        const detectUrl = new URL("/api/detect-pixel", request.url)
+        detectUrl.searchParams.set("shop", shop)
 
-      // Check if PixelConfig already exists
-      let pixelConfig = await prisma.pixelConfig.findUnique({
-        where: { pixelId },
-      })
-
-      // If pixel doesn't exist, create it
-      if (!pixelConfig) {
-        console.log(`📝 Creating new PixelConfig for Pixel ID: ${pixelId}`)
-        pixelConfig = await prisma.pixelConfig.create({
-          data: {
-            pixelId,
-            accessToken: "PENDING_CONFIGURATION",
-            name: `Auto-detected pixel for ${cleanShop}`,
-          },
-        })
-      } else {
-        console.log(`📋 Using existing PixelConfig for Pixel ID: ${pixelId}`)
+        // Make an internal request to detect the pixel
+        await fetch(detectUrl.toString())
+      } catch (error) {
+        console.error("❌ Background pixel detection failed:", error)
       }
+    }, 5000) // Wait 5 seconds before attempting detection
 
-      // Upsert ShopConfig with pixel configuration
-      await prisma.shopConfig.upsert({
-        where: { shopDomain: cleanShop },
-        update: {
-          pixelConfigId: pixelConfig.id,
-          gatewayEnabled: true,
-        },
-        create: {
-          shopDomain: cleanShop,
-          pixelConfigId: pixelConfig.id,
-          gatewayEnabled: true,
-        },
-      })
+    // Create success redirect with detailed status
+    const successUrl = new URL("/auth/success", request.url)
+    successUrl.searchParams.set("shop", shop)
+    successUrl.searchParams.set("status", "connected")
+    successUrl.searchParams.set("webPixelStatus", webPixelStatus)
 
-      return NextResponse.json({
-        success: true,
-        shop: cleanShop,
-        pixelId,
-        configurationStatus: "linked",
-      })
-    } else {
-      console.log(`⚠️ No Facebook Pixel ID found for shop ${cleanShop}`)
-
-      // Upsert ShopConfig without pixel configuration
-      await prisma.shopConfig.upsert({
-        where: { shopDomain: cleanShop },
-        update: {
-          pixelConfigId: null,
-          gatewayEnabled: false,
-        },
-        create: {
-          shopDomain: cleanShop,
-          pixelConfigId: null,
-          gatewayEnabled: false,
-        },
-      })
-
-      return NextResponse.json({
-        success: false,
-        shop: cleanShop,
-        pixelId: null,
-        configurationStatus: "shop_exists_no_pixel",
-        passwordProtected: isPasswordProtectedStore,
-        message: isPasswordProtectedStore
-          ? "Store is password protected. Please provide the store password or manually configure the pixel ID."
-          : "No Facebook Pixel ID found for this store.",
-      })
+    if (webPixelId) {
+      successUrl.searchParams.set("webPixelId", webPixelId)
     }
+
+    if (webPixelError) {
+      successUrl.searchParams.set("webPixelError", encodeURIComponent(webPixelError))
+    }
+
+    const response = NextResponse.redirect(successUrl)
+
+    // Set cookies
+    response.cookies.delete("shopify_nonce")
+    response.cookies.set({
+      name: "shopify_install_success",
+      value: "true",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 5,
+    })
+
+    response.cookies.set({
+      name: "shopify_shop",
+      value: shop,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    })
+
+    console.log("🏁 Redirecting to success page with Web Pixel status:", webPixelStatus)
+    return response
   } catch (error) {
-    console.error("💥 Callback error:", error)
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Internal server error",
-      },
-      { status: 500 },
-    )
+    console.error("💥 OAuth callback error:", error)
+    const errorUrl = new URL("/api/auth/error", request.url)
+    errorUrl.searchParams.set("error", error instanceof Error ? error.message : "Unknown error")
+    return NextResponse.redirect(errorUrl)
   }
 }
