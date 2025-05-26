@@ -93,16 +93,6 @@ async function sendToFacebookConversionsAPI(
         action_source: "website",
         user_data: hashedUserData,
         custom_data,
-        // Add optional fields if available
-        ...(custom_data.value && { value: custom_data.value }),
-        ...(custom_data.currency && { currency: custom_data.currency }),
-        ...(custom_data.content_ids && { content_ids: custom_data.content_ids }),
-        ...(custom_data.content_type && { content_type: custom_data.content_type }),
-        ...(custom_data.content_name && { content_name: custom_data.content_name }),
-        ...(custom_data.content_category && { content_category: custom_data.content_category }),
-        ...(custom_data.search_string && { search_string: custom_data.search_string }),
-        ...(custom_data.num_items && { num_items: custom_data.num_items }),
-        ...(custom_data.order_id && { order_id: custom_data.order_id }),
       },
     ],
   }
@@ -118,11 +108,24 @@ async function sendToFacebookConversionsAPI(
   }
 
   try {
+    // Log the request we're about to send for debugging
+    console.log("📤 [FB CAPI] Sending request to Facebook:", {
+      url: `https://graph.facebook.com/v17.0/${pixelId}/events`,
+      pixelId,
+      event_name,
+      event_id,
+      params: { ...params, access_token: "REDACTED" },
+      data: eventData,
+    })
+
     // Send to Facebook Conversions API
-    const response = await axios.post(`https://graph.facebook.com/v17.0/${pixelId}/events`, eventData, { params })
+    const response = await axios.post(`https://graph.facebook.com/v17.0/${pixelId}/events`, eventData, {
+      params,
+      timeout: 10000, // 10 second timeout
+    })
 
     // Log success to Vercel logs
-    console.log("FB CAPI Success", {
+    console.log("✅ [FB CAPI] Success", {
       pixelId,
       event_name,
       event_id: eventData.data[0].event_id,
@@ -139,24 +142,63 @@ async function sendToFacebookConversionsAPI(
     return { success: true, meta_response: response.data, event_id }
   } catch (apiError: any) {
     // Extract error details from Facebook's response
-    const errorDetails = apiError.response?.data || apiError.message || "Unknown API error"
+    const errorResponse = apiError.response?.data || {}
+    const errorDetails = {
+      message: apiError.message || "Unknown API error",
+      status: apiError.response?.status,
+      statusText: apiError.response?.statusText,
+      data: errorResponse,
+      error: errorResponse.error,
+    }
 
     // Log error to Vercel logs
-    console.error("FB CAPI Error", {
+    console.error("❌ [FB CAPI] Error", {
       pixelId,
       event_name,
       event_id,
       error: errorDetails,
     })
 
+    // Check for specific error types and provide more helpful messages
+    let errorMessage = "Error from Facebook API"
+    let errorSolution = null
+
+    if (errorResponse.error) {
+      const fbError = errorResponse.error
+
+      // Handle common Facebook API errors
+      if (fbError.code === 190) {
+        errorMessage = "Invalid or expired access token"
+        errorSolution = "The access token for this pixel has expired or is invalid. Please update the access token."
+      } else if (fbError.code === 104) {
+        errorMessage = "Unsupported request parameter or invalid parameter value"
+        errorSolution = "Check the event data format and ensure all required fields are present and valid."
+      } else if (fbError.code === 200) {
+        errorMessage = "Permission error"
+        errorSolution = "The access token doesn't have permission to use the Conversions API for this pixel."
+      } else if (fbError.code === 100) {
+        errorMessage = "Invalid parameter"
+        errorSolution =
+          "One of the parameters in your request is invalid. Check the error details for more information."
+      }
+    }
+
     // Log the error with event_id
     await logEvent(pixelId, event_name, "error", null, {
       error: errorDetails,
+      message: errorMessage,
+      solution: errorSolution,
       event_id,
       event_source_url,
     })
 
-    return { success: false, error: "Error from Facebook API", details: errorDetails, event_id }
+    return {
+      success: false,
+      error: errorMessage,
+      solution: errorSolution,
+      details: errorDetails,
+      event_id,
+    }
   }
 }
 
@@ -178,6 +220,13 @@ function hashUserData(userData: any) {
   if (userData.client_user_agent) hashedData.client_user_agent = userData.client_user_agent
   if (userData.fbp) hashedData.fbp = userData.fbp
   if (userData.fbc) hashedData.fbc = userData.fbc
+
+  // Ensure we have at least one identifier
+  if (Object.keys(hashedData).length === 0) {
+    // Add IP address as a fallback
+    hashedData.client_ip_address = "REDACTED_IP_ADDRESS"
+    hashedData.client_user_agent = userData.client_user_agent || "Mozilla/5.0"
+  }
 
   return hashedData
 }
@@ -206,7 +255,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the correct pixel ID for this shop
-    const pixelId = await getPixelIdForShop(shop_domain)
+    const pixelId = (await getPixelIdForShop(shop_domain)) || sentPixelId
 
     if (!pixelId) {
       console.error(`❌ [Track API] No pixel ID found for shop: ${shop_domain}`)
@@ -268,6 +317,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Ensure we have a valid event_source_url
+    const event_source_url = custom_data.event_source_url || `https://${shop_domain}` || DEFAULT_DOMAIN
+
     // Hash user data
     const hashedUserData = hashUserData(user_data)
 
@@ -278,10 +330,10 @@ export async function POST(request: NextRequest) {
       event_time,
       hashedUserData,
       custom_data,
-      null, // test_event_code
+      process.env.FACEBOOK_TEST_EVENT_CODE || null, // Use test event code from env if available
       accessToken,
       event_id,
-      custom_data.event_source_url || DEFAULT_DOMAIN,
+      event_source_url,
     )
 
     // Log the final result
@@ -291,7 +343,7 @@ export async function POST(request: NextRequest) {
         `${event_name}_processed`,
         result.success ? "processed" : "error",
         { success: result.success, event_id },
-        result.success ? null : { error: result.error },
+        result.success ? null : { error: result.error, solution: result.solution },
       )
     } catch (logError) {
       console.error(`❌ [Track API] Failed to log final result:`, logError)
@@ -305,6 +357,7 @@ export async function POST(request: NextRequest) {
         shopDomain: shop_domain,
         meta_response: result.success ? result.meta_response : null,
         error: !result.success ? result.error : null,
+        solution: !result.success ? result.solution : null,
       },
       { headers: corsHeaders },
     )
