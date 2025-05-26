@@ -1,103 +1,62 @@
 "use client"
 
-import { useSearchParams } from "next/navigation"
 import { useEffect } from "react"
+import { useSearchParams } from "next/navigation"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { CheckCircle, ArrowRight } from "lucide-react"
 
-export default function SuccessPage() {
+export default function AuthSuccess() {
   const searchParams = useSearchParams()
   const shop = searchParams.get("shop")
+  const status = searchParams.get("status")
+  const webPixelStatus = searchParams.get("webPixelStatus")
 
   useEffect(() => {
-    if (shop) {
-      // Store the shop in localStorage
-      localStorage.setItem("shop", shop)
-    }
-  }, [shop])
-
-  useEffect(() => {
-    // Redirect to the app after a short delay
-    const redirectTimeout = setTimeout(() => {
-      window.location.href = `/app?shop=${shop}`
-    }, 2000)
-
-    return () => clearTimeout(redirectTimeout)
-  }, [shop])
-
-  useEffect(() => {
-    // Check pixel detection status after 10 seconds
-    const checkPixelStatus = setTimeout(async () => {
-      try {
-        const response = await fetch(`/api/detect-pixel?shop=${shop}`)
-        const data = await response.json()
-
-        if (data.success && data.pixelId) {
-          // Update UI to show pixel detected
-          console.log("Pixel detected:", data.pixelId)
-        }
-      } catch (error) {
-        console.error("Failed to check pixel status:", error)
+    // Auto-redirect to app dashboard after 3 seconds
+    const timer = setTimeout(() => {
+      if (shop) {
+        window.location.href = `/app?shop=${shop}`
       }
-    }, 10000)
+    }, 3000)
 
-    return () => clearTimeout(checkPixelStatus)
+    return () => clearTimeout(timer)
   }, [shop])
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-100">
-      <div className="bg-white rounded-lg shadow-md p-8 max-w-md w-full">
-        <h1 className="text-2xl font-semibold text-center mb-4">Installation Successful!</h1>
-        <p className="text-gray-700 text-center mb-6">
-          Your app has been successfully installed. You will be redirected to the app shortly.
-        </p>
-
-        {/* Web Pixel Status */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold mb-4">Web Pixel</h2>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Status:</span>
-              <span className="font-medium">Not Connected</span>
-            </div>
-
-            <p className="text-sm text-gray-500">Connect your web pixel to track events on your store.</p>
-
-            <div className="mt-4">
-              <a
-                href={`/web-pixel-config?shop=${shop}`}
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                Configure Web Pixel →
-              </a>
-            </div>
-          </div>
-        </div>
-
-        {/* Pixel Detection Status */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold mb-4">Facebook Pixel Detection</h2>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">Detection Status:</span>
-              <span className="font-medium">Pending</span>
-            </div>
-
-            <p className="text-sm text-gray-500">
-              We're checking your store for Facebook Pixel configuration. This may take a few moments.
+    <div className="container mx-auto py-8 px-4 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-green-500" />
+            App Installed Successfully!
+          </CardTitle>
+          <CardDescription>Your Facebook Pixel Gateway app has been installed on {shop}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm">
+              <strong>Installation Status:</strong> {status === "connected" ? "✅ Connected" : "❌ Failed"}
             </p>
-
-            <div className="mt-4">
-              <a
-                href={`/manual-pixel-config?shop=${shop}`}
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                Configure Pixel Manually →
-              </a>
-            </div>
+            <p className="text-sm">
+              <strong>Web Pixel Status:</strong> {webPixelStatus === "success" ? "✅ Activated" : "⚠️ Needs Setup"}
+            </p>
           </div>
-        </div>
-      </div>
+
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-blue-900 mb-2">Next Step: Configure Your Facebook Pixel</h3>
+            <p className="text-blue-800 text-sm mb-3">
+              To start tracking events, you need to add your Facebook Pixel ID.
+            </p>
+            <p className="text-blue-700 text-xs">Redirecting to dashboard in 3 seconds...</p>
+          </div>
+
+          <Button onClick={() => (window.location.href = `/app?shop=${shop}`)} className="w-full">
+            Go to Dashboard
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   )
 }
