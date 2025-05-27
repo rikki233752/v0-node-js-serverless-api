@@ -1,5 +1,5 @@
 type = "web_pixel"
-name = "Facebook Pixel Gateway Final"
+name = "Web Pixel Final"
 
 runtime_context = "strict"
 
@@ -7,7 +7,7 @@ runtime_context = "strict"
 type = "object"
 
 [settings.fields.pixelId]
-name = "Facebook Pixel ID"
+name = "Pixel ID"
 description = "Your Facebook Pixel ID"
 type = "single_line_text_field"
 validations = [

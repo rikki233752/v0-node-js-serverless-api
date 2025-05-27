@@ -1,12 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Loader2, CheckCircle } from "lucide-react"
+import { Loader2, CheckCircle, AlertCircle } from "lucide-react"
 
 export default function RegisterFinalPixelPage() {
   const [shop, setShop] = useState("test-rikki-new.myshopify.com")
@@ -25,6 +23,15 @@ export default function RegisterFinalPixelPage() {
     setResult(null)
 
     try {
+      // First, fix the shop-pixel link
+      const linkResponse = await fetch(`/api/fix-shop-pixel-link?shop=${encodeURIComponent(shop)}`)
+      const linkData = await linkResponse.json()
+
+      if (!linkResponse.ok) {
+        throw new Error(linkData.error || "Failed to fix shop pixel link")
+      }
+
+      // Then register the web pixel
       const response = await fetch(`/api/shopify/register-final-pixel?shop=${encodeURIComponent(shop)}`)
       const data = await response.json()
 
@@ -32,31 +39,11 @@ export default function RegisterFinalPixelPage() {
         throw new Error(data.error || "Failed to register Web Pixel")
       }
 
-      setResult(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleFixPixelLink = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`/api/fix-shop-pixel-link?shop=${encodeURIComponent(shop)}`)
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to fix shop pixel link")
-      }
-
       setResult({
-        ...result,
+        ...data,
         pixelLinkFixed: true,
-        previousPixelId: data.previousPixelId,
-        newPixelId: data.newPixelId,
+        previousPixelId: linkData.previousPixelId,
+        newPixelId: linkData.newPixelId,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error")
@@ -67,94 +54,75 @@ export default function RegisterFinalPixelPage() {
 
   return (
     <div className="container mx-auto p-6 max-w-2xl">
-      <h1 className="text-3xl font-bold mb-6">Register Final Web Pixel Extension</h1>
+      <h1 className="text-2xl font-bold mb-6">Register Final Web Pixel Extension</h1>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Register Web Pixel</CardTitle>
-          <CardDescription>Register the final Web Pixel extension for your shop</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="shop">Shop Domain</Label>
-              <Input
-                id="shop"
-                placeholder="your-store.myshopify.com"
-                value={shop}
-                onChange={(e) => setShop(e.target.value)}
-              />
-            </div>
-
-            <Button onClick={handleRegister} disabled={loading} className="w-full">
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Registering...
-                </>
-              ) : (
-                "Register Web Pixel"
-              )}
-            </Button>
-
-            {result && !result.pixelLinkFixed && (
-              <Button onClick={handleFixPixelLink} disabled={loading} className="w-full mt-2" variant="outline">
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Fixing...
-                  </>
-                ) : (
-                  "Fix Shop Pixel Link"
-                )}
-              </Button>
-            )}
+      <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="shop">Shop Domain</Label>
+            <Input
+              id="shop"
+              placeholder="your-store.myshopify.com"
+              value={shop}
+              onChange={(e) => setShop(e.target.value)}
+            />
           </div>
-        </CardContent>
-      </Card>
+
+          <Button onClick={handleRegister} disabled={loading} className="w-full">
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Registering...
+              </>
+            ) : (
+              "Register Web Pixel & Fix Shop Link"
+            )}
+          </Button>
+        </div>
+      </div>
 
       {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-6 flex items-start">
+          <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium">Error</p>
+            <p className="text-sm">{error}</p>
+          </div>
+        </div>
       )}
 
       {result && (
-        <Card className="border-green-200">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
-              Web Pixel Registered
-            </CardTitle>
-            <CardDescription>The Web Pixel extension has been registered successfully</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <p className="text-sm">
-                <span className="font-medium">Existing Pixels:</span> {result.existingPixels}
-              </p>
-              <p className="text-sm">
-                <span className="font-medium">Deleted Pixels:</span> {result.deletedPixels}
-              </p>
-              {result.newPixel && (
-                <p className="text-sm">
-                  <span className="font-medium">New Pixel ID:</span> {result.newPixel.id}
+        <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg">
+          <div className="flex items-start">
+            <CheckCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium">Web Pixel Registered Successfully</p>
+              <div className="mt-2 space-y-1 text-sm">
+                <p>
+                  <span className="font-medium">Existing Pixels:</span> {result.existingPixels}
                 </p>
-              )}
-              {result.pixelLinkFixed && (
-                <>
-                  <p className="text-sm">
-                    <span className="font-medium">Previous Pixel ID:</span> {result.previousPixelId}
+                <p>
+                  <span className="font-medium">Deleted Pixels:</span> {result.deletedPixels}
+                </p>
+                {result.newPixel && (
+                  <p>
+                    <span className="font-medium">New Pixel ID:</span> {result.newPixel.id}
                   </p>
-                  <p className="text-sm">
-                    <span className="font-medium">New Pixel ID:</span> {result.newPixelId}
-                  </p>
-                </>
-              )}
+                )}
+                {result.pixelLinkFixed && (
+                  <>
+                    <p>
+                      <span className="font-medium">Previous Pixel ID:</span> {result.previousPixelId}
+                    </p>
+                    <p>
+                      <span className="font-medium">New Pixel ID:</span> {result.newPixelId}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
     </div>
   )

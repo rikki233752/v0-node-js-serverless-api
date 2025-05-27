@@ -1,8 +1,8 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { getShopAccessToken } from "@/lib/db"
 import axios from "axios"
 
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
     const shop = searchParams.get("shop") || "test-rikki-new.myshopify.com"

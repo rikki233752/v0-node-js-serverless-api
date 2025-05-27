@@ -1,24 +1,16 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/db"
+import { NextResponse } from "next/server"
+import { PrismaClient } from "@prisma/client"
 
-export async function GET(request: NextRequest) {
+const prisma = new PrismaClient()
+
+export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url)
-    const shopDomain = searchParams.get("shop") || "test-rikki-new.myshopify.com"
-    const pixelId = searchParams.get("pixelId") || "584928510540140"
+    const shop = searchParams.get("shop") || "test-rikki-new.myshopify.com"
 
-    // Find the pixel configuration
-    const pixelConfig = await prisma.pixelConfig.findFirst({
-      where: { pixelId },
-    })
-
-    if (!pixelConfig) {
-      return NextResponse.json({ error: "Pixel configuration not found" }, { status: 404 })
-    }
-
-    // Find the shop configuration
-    const shopConfig = await prisma.shopConfig.findUnique({
-      where: { shopDomain },
+    // Get the current shop configuration
+    const shopConfig = await prisma.shopConfig.findFirst({
+      where: { shopDomain: shop },
       include: { pixelConfig: true },
     })
 
@@ -26,19 +18,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Shop configuration not found" }, { status: 404 })
     }
 
-    // Update the shop configuration to link to the correct pixel
+    // Find the correct pixel configuration
+    const correctPixelConfig = await prisma.pixelConfig.findFirst({
+      where: { pixelId: "584928510540140" },
+    })
+
+    if (!correctPixelConfig) {
+      return NextResponse.json({ error: "Correct pixel configuration not found" }, { status: 404 })
+    }
+
+    // Update the shop configuration to use the correct pixel
     const updatedShopConfig = await prisma.shopConfig.update({
       where: { id: shopConfig.id },
-      data: { pixelConfigId: pixelConfig.id },
+      data: { pixelConfigId: correctPixelConfig.id },
       include: { pixelConfig: true },
     })
 
     return NextResponse.json({
       success: true,
-      message: "Shop pixel link updated successfully",
-      previousPixelId: shopConfig.pixelConfig?.pixelId,
-      newPixelId: updatedShopConfig.pixelConfig?.pixelId,
-      shopDomain: updatedShopConfig.shopDomain,
+      message: "Shop pixel link fixed",
+      previousPixelId: shopConfig.pixelConfig?.pixelId || "none",
+      newPixelId: updatedShopConfig.pixelConfig?.pixelId || "none",
+      shop: updatedShopConfig.shopDomain,
     })
   } catch (error) {
     console.error("Error fixing shop pixel link:", error)

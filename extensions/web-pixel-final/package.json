@@ -3,10 +3,5 @@
   "version": "1.0.0",
   "main": "dist/main.js",
   "license": "UNLICENSED",
-  "dependencies": {
-    "@shopify/web-pixels-extension": "^0.4.8"
-  },
-  "devDependencies": {
-    "@types/node": "^20.8.2"
-  }
+  "dependencies": {}
 }
