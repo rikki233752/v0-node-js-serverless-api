@@ -380,14 +380,14 @@ function collectUserData(event) {
 
     // Try to get customer email (hashed)
     if (event.data && event.data.customer && event.data.customer.email) {
-      userData.em = hashData(event.data.customer.email.trim().toLowerCase())
-      success("[Web Pixel Gateway] Added hashed email to user data")
+      userData.em = event.data.customer.email.trim().toLowerCase()
+      success("[Web Pixel Gateway] Added email to user data")
     }
 
     // Try to get customer phone (hashed)
     if (event.data && event.data.customer && event.data.customer.phone) {
-      userData.ph = hashData(event.data.customer.phone.replace(/\D/g, ""))
-      success("[Web Pixel Gateway] Added hashed phone to user data")
+      userData.ph = event.data.customer.phone.replace(/\D/g, "")
+      success("[Web Pixel Gateway] Added phone to user data")
     }
 
     // Try to get customer address
@@ -395,25 +395,45 @@ function collectUserData(event) {
       const address = event.data.customer.address
 
       if (address.firstName && address.lastName) {
-        userData.fn = hashData(address.firstName.trim().toLowerCase())
-        userData.ln = hashData(address.lastName.trim().toLowerCase())
-        success("[Web Pixel Gateway] Added hashed name to user data")
+        userData.fn = address.firstName.trim().toLowerCase()
+        userData.ln = address.lastName.trim().toLowerCase()
+        success("[Web Pixel Gateway] Added name to user data")
       }
 
       if (address.city) {
-        userData.ct = hashData(address.city.trim().toLowerCase())
-        success("[Web Pixel Gateway] Added hashed city to user data")
+        userData.ct = address.city.trim().toLowerCase()
+        success("[Web Pixel Gateway] Added city to user data")
       }
 
       if (address.zip) {
-        userData.zp = hashData(address.zip.trim())
-        success("[Web Pixel Gateway] Added hashed zip to user data")
+        userData.zp = address.zip.trim()
+        success("[Web Pixel Gateway] Added zip to user data")
+      }
+    }
+
+    // Try to get Facebook browser ID from cookies
+    if (event.context && event.context.document && event.context.document.cookie) {
+      const cookies = event.context.document.cookie
+      const fbpMatch = cookies.match(/_fbp=([^;]+)/)
+      if (fbpMatch && fbpMatch[1]) {
+        userData.fbp = fbpMatch[1]
+        success("[Web Pixel Gateway] Added Facebook browser ID to user data")
+      }
+    }
+
+    // Try to get Facebook click ID from URL
+    if (event.context && event.context.document && event.context.document.location) {
+      const search = event.context.document.location.search
+      const fbclidMatch = search.match(/[?&]fbclid=([^&]+)/)
+      if (fbclidMatch && fbclidMatch[1]) {
+        userData.fbc = `fb.1.${Date.now()}.${fbclidMatch[1]}`
+        success("[Web Pixel Gateway] Added Facebook click ID to user data")
       }
     }
 
     // Add external ID as fallback
     const shopDomain = extractShopDomain(event)
-    userData.external_id = hashData(`${shopDomain}_${Date.now()}`)
+    userData.external_id = `${shopDomain}_${Date.now()}`
     warn("[Web Pixel Gateway] Added fallback external ID to user data")
 
     log("[Web Pixel Gateway] Collected user data:", userData)
@@ -499,13 +519,6 @@ async function sendEvent(eventData, shopDomain) {
   } catch (e) {
     error(`[Web Pixel Gateway] Error sending ${eventData.event_name} event: ${e.message}`)
   }
-}
-
-// Simple hash function (for demo purposes only)
-function hashData(data) {
-  // In a real implementation, use a proper hashing algorithm
-  // This is just a placeholder
-  return `hash_${data}`
 }
 
 register(async ({ configuration, analytics, browser }) => {

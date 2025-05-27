@@ -177,9 +177,15 @@ async function sendToFacebookConversionsAPI(
         errorMessage = "Permission error"
         errorSolution = "The access token doesn't have permission to use the Conversions API for this pixel."
       } else if (fbError.code === 100) {
-        errorMessage = "Invalid parameter"
-        errorSolution =
-          "One of the parameters in your request is invalid. Check the error details for more information."
+        if (fbError.error_subcode === 2804050) {
+          errorMessage = "Insufficient customer information"
+          errorSolution =
+            "Facebook requires more customer information to match this event. Add email, phone, or name+location data."
+        } else {
+          errorMessage = "Invalid parameter"
+          errorSolution =
+            "One of the parameters in your request is invalid. Check the error details for more information."
+        }
       }
     }
 
@@ -207,12 +213,27 @@ function hashUserData(userData: any) {
   const hashedData: any = {}
 
   // Fields that need hashing
-  const fieldsToHash = ["em", "ph", "fn", "ln", "ct", "st", "zp", "country"]
+  const fieldsToHash = ["em", "ph", "fn", "ln", "ct", "st", "zp", "country", "external_id"]
 
+  // Properly hash each field with SHA-256
   for (const field of fieldsToHash) {
     if (userData[field]) {
-      const value = String(userData[field]).trim().toLowerCase()
+      // Normalize the value before hashing
+      let value = String(userData[field]).trim()
+
+      // Special normalization for email
+      if (field === "em") {
+        value = value.toLowerCase()
+      }
+
+      // Special normalization for phone (remove non-digits)
+      if (field === "ph") {
+        value = value.replace(/\D/g, "")
+      }
+
+      // Hash the value with SHA-256
       hashedData[field] = crypto.createHash("sha256").update(value).digest("hex")
+      console.log(`✅ [Track API] Hashed ${field} for privacy`)
     }
   }
 
@@ -221,13 +242,24 @@ function hashUserData(userData: any) {
   if (userData.fbp) hashedData.fbp = userData.fbp
   if (userData.fbc) hashedData.fbc = userData.fbc
 
+  // If external_id was provided but not in a hashable format, use it directly
+  if (userData.external_id && !hashedData.external_id) {
+    hashedData.external_id = userData.external_id
+  }
+
   // Ensure we have at least one identifier
-  if (Object.keys(hashedData).length === 0) {
+  if (Object.keys(hashedData).filter((k) => k !== "client_user_agent").length === 0) {
+    // Generate a random external ID as last resort
+    const randomId = `shop_visitor_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`
+    hashedData.external_id = crypto.createHash("sha256").update(randomId).digest("hex")
+    console.log(`⚠️ [Track API] Added random external ID as fallback`)
+
     // Add IP address as a fallback
     hashedData.client_ip_address = "REDACTED_IP_ADDRESS"
     hashedData.client_user_agent = userData.client_user_agent || "Mozilla/5.0"
   }
 
+  console.log(`📊 [Track API] User data fields: ${Object.keys(hashedData).join(", ")}`)
   return hashedData
 }
 
@@ -245,6 +277,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     console.log(`📥 [Track API] Received ${event_name} event with shop domain: ${shop_domain || "unknown"}`)
+    console.log(`🔍 [Track API] User data received:`, user_data)
 
     // Validate required fields
     if (!event_name) {
@@ -255,7 +288,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the correct pixel ID for this shop
-    const pixelId = (await getPixelIdForShop(shop_domain)) || sentPixelId
+    const pixelId = (await getPixelIdForShop(shop_domain)) || sentPixelId || "584928510540140"
 
     if (!pixelId) {
       console.error(`❌ [Track API] No pixel ID found for shop: ${shop_domain}`)
@@ -320,7 +353,7 @@ export async function POST(request: NextRequest) {
     // Ensure we have a valid event_source_url
     const event_source_url = custom_data.event_source_url || `https://${shop_domain}` || DEFAULT_DOMAIN
 
-    // Hash user data
+    // Hash user data - this is the critical part for Facebook's requirements
     const hashedUserData = hashUserData(user_data)
 
     // Send to Facebook Conversions API
